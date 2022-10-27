@@ -54,6 +54,9 @@
     currentrowodd: .res 1 ; holds the currrent row when drawing tiles
     currentroweven: .res 1
     ButtonFlag: .res 1
+    framecount: .res 1
+    currentbank: .res 1
+
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
     TileBufferH = $0300 ; $0300 -> 031F ; Tiles that need to be written when the screen has scrolled are stored here
@@ -354,8 +357,8 @@ STA $2001
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
     JSR DoGameLogic 
-    ; JSR IncFrameCount   ; Counts to 59 then resets to 0
-    ; JSR AlternateBanks
+    JSR IncFrameCount   ; Counts to 59 then resets to 0
+    JSR AlternateBanks
     ;JSR DoScroll       
     JSR OAMBuffer   ; Sprite data is written to the buffer here
     ; JSR WriteToTileBuffer ; write to the tile buffer when scrolling
@@ -535,6 +538,42 @@ SpawnEntity:
         JMP EndEurydiceSpawn
 EndEurydiceSpawn:
     RTS
+
+IncFrameCount:
+    INC framecount
+    LDA framecount
+    CMP #$3C
+    BNE :+
+    LDA #$00
+    :
+    STA framecount
+RTS 
+
+AlternateBanks:
+    LDA framecount
+    BEQ :+
+    RTS
+    :
+    LDA currentbank
+    EOR #$02 
+    STA currentbank 
+    JSR SetBank
+    RTS
+
+SetBank: ; sets A as the bank to be used
+; lower 5 bits. lowest ignored in 8kb mode
+
+    STA $A000
+    LSR
+    STA $A000
+    LSR
+    STA $A000
+    LSR
+    STA $A000
+    LSR
+    STA $A000
+RTS 
+
 
 ; List of entity data0
 PlayerData:
@@ -1050,6 +1089,36 @@ brick_bulge_r:
     .byte $2B
     .BYTE $3A 
     .BYTE $3B
+water_l:
+    .byte $4C
+    .byte $4D
+    .BYTE $5C 
+    .BYTE $5D
+ water_r:
+    .byte $4E
+    .byte $4F
+    .BYTE $5E 
+    .BYTE $5F 
+window_l:
+    .byte $6C
+    .byte $6D
+    .BYTE $7C 
+    .BYTE $7D
+window_r:
+    .byte $6E
+    .byte $6F
+    .BYTE $7E 
+    .BYTE $7F 
+bars_l:
+    .byte $8C
+    .byte $8D
+    .BYTE $9C 
+    .BYTE $9D
+bars_r:
+    .byte $8E
+    .byte $8F
+    .BYTE $9E 
+    .BYTE $9F
 
 
 MetaTileList:
@@ -1074,39 +1143,45 @@ MetaTileList:
     .word crack ;12
     .word brick_lip_l;13
     .word brick_lip_r;14
-    .word brick_bulge_l
-    .word brick_bulge_r
+    .word brick_bulge_l;15
+    .word brick_bulge_r;16
+    .word water_l;17
+    .word water_r;18 
+    .word window_l;19
+    .word window_r;1A
+    .word bars_l;1B
+    .word bars_r;1C
 PaletteData:
     .byte $0F,$01,$11,$21,  $0F,$02,$03,$13,  $0F,$07,$17,$27, $0F,$00,$10,$20  ;background palette data  
     .byte $0F,$27,$14,$1A,  $0F,$09,$1C,$0C,  $0F,$2C,$30,$27, $0F,$0F,$36,$17  ;sprite palette data
 
 ScreenDefault: ; the  format of a screen is that each byte represents 1 meta tile, made up of 4 8x8 pixel blocks to save huge
 ; amounts ofbytes in the long run
-    .byte $02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03
-    .byte $02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$12,$03,$11,$0C,$00,$03
-    .byte $02,$00,$00,$03,$02,$12,$00,$03,$02,$00,$12,$03,$11,$0E,$0F,$03
-    .byte $02,$00,$00,$03,$02,$12,$00,$03,$02,$00,$00,$03,$02,$10,$11,$03
-    .byte $02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03
-    .byte $02,$13,$14,$03,$02,$13,$04,$03,$02,$13,$14,$03,$02,$13,$14,$03
+    .byte $02,$1B,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03
+    .byte $02,$00,$1C,$03,$02,$00,$00,$03,$02,$00,$12,$03,$11,$0C,$00,$03
+    .byte $02,$00,$00,$03,$02,$12,$1C,$03,$02,$00,$12,$03,$11,$0E,$0F,$03
+    .byte $02,$00,$00,$03,$02,$12,$1C,$03,$02,$00,$00,$03,$02,$10,$11,$03
+    .byte $02,$00,$00,$03,$02,$10,$00,$03,$02,$19,$1A,$03,$02,$19,$1A,$03
+    .byte $02,$13,$14,$03,$02,$13,$14,$03,$02,$13,$14,$03,$02,$13,$14,$03
     .byte $02,$05,$04,$03,$02,$04,$05,$03,$02,$04,$05,$03,$10,$05,$04,$03
     .byte $11,$05,$04,$03,$02,$04,$05,$03,$02,$04,$05,$03,$02,$05,$04,$03
-    .byte $15,$16,$15,$16,$15,$16,$15,$16,$15,$16,$15,$16,$15,$16,$15,$16
+    .byte $00,$03,$02,$02,$03,$03,$02,$02,$03,$03,$02,$02,$03,$03,$02,$02
     .byte $03,$05,$04,$02,$03,$04,$05,$02,$03,$04,$05,$02,$03,$05,$04,$02
     .byte $03,$05,$04,$02,$03,$04,$05,$02,$03,$04,$05,$02,$03,$05,$04,$02
-    .byte $03,$05,$04,$08,$09,$04,$05,$02,$03,$04,$05,$02,$03,$05,$04,$02
+    .byte $03,$05,$04,$08,$09,$04,$05,$19,$1A,$04,$05,$19,$1A,$05,$04,$02
     .byte $03,$05,$04,$0A,$0B,$04,$05,$02,$03,$04,$05,$02,$03,$05,$04,$02
-    .byte $07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07
+    .byte $07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$18,$17,$18,$07
     .byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
 
 
 AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
-    .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %11010101, %01010101
-    .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01011101, %01010111
-    .byte %00000101, %00000101, %00000101, %00000101, %00000101, %00000101, %00000101, %00000101
+    .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101
+    .byte %01000100, %00010001, %01000100, %00010001, %01000100, %00010001, %01011101, %01010111
+    .byte %00000100, %00000001, %00000100, %00000001, %00000100, %00000001, %00000100, %00000001
     .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
+    .byte %00010101, %01000101, %00010101, %01000101, %00010101, %01000101, %00010101, %01000101
     .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %10100000
+    .byte %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %00000000, %10000000
     .byte %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010
 
 

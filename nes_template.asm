@@ -53,13 +53,19 @@
     currenttable: .res 1
     currentrowodd: .res 1 ; holds the currrent row when drawing tiles
     currentroweven: .res 1
+    currentcollisionaddress: .res 2
     ButtonFlag: .res 1
     framecount: .res 1
     currentbank: .res 1
+    vxhigh: .res 1
+    vxlow: .res 1
+    vyhigh: .res 1
+    vylow: .res 1
 
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
-    TileBufferH = $0300 ; $0300 -> 031F ; Tiles that need to be written when the screen has scrolled are stored here
+    TileBufferH = $0300 ; $0300 -> 030F ; Tiles that need to be written when the screen has scrolled are stored here
+    CollisionMap = $0310 ; 0310 -> 0400 ; 240 byte collision map for tile collision
     CurrentBackgroundPalette = $04C0 ; -> 04CF
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
@@ -178,74 +184,6 @@ InitWorld:
 
     LDX #$00
     LDY #$00
-
-LoadSingleScreen:
-    LDA #< ScreenDefault ; take the low byte
-    STA world ; store low byte in z page
-    LDA #> ScreenDefault ; take the high byte
-    STA world+1 ; etc
-
-    ; LDA #$0F ; push this to the stack as we need two loops 
-    ; PHA 
-    LDA #$00
-    STA currentrowodd
-    STA currentroweven
-
-    LoadScreenLoop:
-        LDX #$10
-        LoadOddRow:
-            LDY currentrowodd
-            LDA (world), Y ; get a meta tile
-            ASL
-            TAY ; move metatile ref to Y
-            LDA  MetaTileList, Y
-            STA jumppointer
-            LDA MetaTileList+1, Y ; get the whole address of the data for that tile
-            STA jumppointer+1
-            LDY #$00 
-            ; the first two bytes are uploaded directly to the ppu, as they are on the same row
-            LDA (jumppointer), Y 
-            STA $2007
-            INY 
-            LDA (jumppointer), Y 
-            STA $2007
-            INC currentrowodd
-            DEX 
-            BNE LoadOddRow ; break this loop when we've done one row
-
-        LDY #$00
-
-        LoadEvenRow:
-            LDX #$10
-            LoadEvenRowLoop:
-                LDY currentroweven
-                LDA (world), Y
-                ASL
-                TAY 
-                LDA MetaTileList, Y
-                STA jumppointer
-                lda MetaTileList+1, Y
-                STA jumppointer+1 
-                LDY #$02
-
-                LDA (jumppointer), Y 
-                STA $2007
-                INY 
-                LDA (jumppointer), Y 
-                STA $2007
-                INC currentroweven
-                DEX 
-                BNE LoadEvenRowLoop
-
-        LDA currentroweven
-        CLC 
-        ADC $10
-        STA currentrowodd
-        STA currentroweven
-        CMP #$F0 
-        BNE LoadScreenLoop
-
-EndScreenLoad:
                 
 
 ; LoadWorld:
@@ -313,7 +251,7 @@ JSR SpawnEntity
 
 ; Set Control
 ; to configure MMC1 mapper, we need to write to 8000 repeatedly
-LDA #%00000011 ; This configures it to horizontal mirroring, 32kb of prg rom and two 8kb chr banks
+LDA #%00000010 ; This configures it to horizontal mirroring, 32kb of prg rom and two 8kb chr banks
 
 STA $8000
 LSR 
@@ -338,17 +276,20 @@ STA $A000
 LSR
 STA $A000
 
-; Enable interrupts
-CLI
+    ;                             l
+    ; set up for a screen load    V
 
-LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
-STA $2000
-; Enabling sprites and background for left-most 8 pixels
-; Enable sprites and background
-LDA #%00111110
-STA $2001
+    LDA #< ScreenDefault ; take the low byte
+    STA world ; store low byte in z page
+    LDA #> ScreenDefault ; take the high  setubyte
+    STA world+1 ; etc
 
-
+    LDA #<CollisionMap 
+    STA currentcollisionaddress
+    LDA #>CollisionMap
+    STA currentcollisionaddress+1
+    JSR LoadSingleScreen
+    ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;; Main Loop
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -484,12 +425,123 @@ ProcessEntities:
 RTS
 
 PlayerOneBehaviour:
-    LDA entities+Entity::xpos, X
-    CLC 
-    ADC #$01 
-    STA entities+Entity::xpos, X
     JSR CheckButtons
-RTS 
+RTS
+
+; BEFORE CALL:
+;  - load screen data address into 'world'
+;  - load collision data addess into currentcollisionaddress 
+LoadSingleScreen:
+    LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
+    STA $2006
+    LDA #$00
+    STA $2006
+
+
+
+    SEI ; disable all interuppts 
+    LDA #%00010000
+    STA $2000
+
+    LDA #$00000000 ; disable all rendering
+    STA $2000
+
+
+    LDA #$00
+    STA currentrowodd
+    STA currentroweven
+
+    LoadScreenLoop:
+        LDX #$10
+        LoadOddRow:
+            LDY currentrowodd
+            LDA (world), Y ; get a meta tile
+            ASL
+            TAY ; move metatile ref to Y
+            LDA  MetaTileList, Y
+            STA jumppointer
+            LDA MetaTileList+1, Y ; get the whole address of the data for that tile
+            STA jumppointer+1
+            LDY #$00 
+            ; the first two bytes are uploaded directly to the ppu, as they are on the same row
+            LDA (jumppointer), Y 
+            STA $2007
+            INY 
+            LDA (jumppointer), Y 
+            STA $2007
+            INC currentrowodd
+            DEX 
+            BNE LoadOddRow ; break this loop when we've done one row
+
+        LDY #$00
+
+        LoadEvenRow:
+            LDX #$00 
+            LoadEvenRowLoop:
+                LDY currentroweven
+                LDA (world), Y
+                ASL
+                TAY 
+                LDA MetaTileList, Y
+                STA jumppointer
+                LDA MetaTileList+1, Y
+                STA jumppointer+1 
+                LDY #$02
+
+                LDA (jumppointer), Y 
+                STA $2007
+                INY 
+                LDA (jumppointer), Y 
+                STA $2007
+                INC currentroweven
+
+                INY ; 5th byte is collision data 
+                LDA (jumppointer), Y
+                PHA 
+                TXA 
+                TAY
+                PLA 
+                STA (currentcollisionaddress), Y
+                TYA 
+                TAX
+
+
+                INX 
+                CPX #$10
+                BNE LoadEvenRowLoop
+
+        LDA currentcollisionaddress
+        CLC 
+        ADC #$10
+        STA currentcollisionaddress
+        LDA currentcollisionaddress+1
+        ADC #$00 
+        STA currentcollisionaddress+1
+
+        LDA currentroweven
+        CLC 
+        ADC $10
+        STA currentrowodd
+        STA currentroweven
+        CMP #$F0 
+        BNE LoadScreenLoop
+
+EndScreenLoad:
+    ; LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
+    ; STA $2000
+    ; ; Enabling sprites and background for left-most 8 pixels
+    ; ; Enable sprites and background
+    ; LDA #%00111110
+    ; STA $2001
+
+LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
+STA $2000
+; Enabling sprites and background for left-most 8 pixels
+; Enable sprites and background
+LDA #%00111110
+STA $2001
+CLI
+RTS
 
 
 ProcessEntityList: ; Jump table for processing entities
@@ -586,7 +638,6 @@ PlayerData:
 ;;;;;;;;;;;;;
 ReadButtons:
     ; Ping $4016 with a 1 to get it ready to send buttons 
-    CLC
     LDA #$01
     STA $4016
     STA buttons        ; Put 1 into buttons so we can use it to manipulate the carry flag in 8 loops time
@@ -773,6 +824,7 @@ EndButtons:
 RTS
 
 InputA:
+
     RTS 
 InputB:
     RTS 
@@ -781,9 +833,57 @@ InputUp:
 InputDown:
     RTS 
 InputLeft:
-    RTS
+    LDA vxlow ; load the subpixel speed
+    SEC
+    SBC #$40 ; add player speed
+    STA vxlow ; store new subpixel
+    LDA vxhigh
+    SBC #$00 ; add without clearing the carry. If vx low overflowed the true PX val goes up by 1
+    CMP #$FE ; compare to max speed
+    BCC :+ ; if speed is lower than max speed jump forward
+    LDA #$FE ; else load max speed
+    :
+    STA vxhigh ; store true pixel speed
+    ADC entities+Entity::xpos, X ; add speed to current entity pos
+    STA entities+Entity::xpos, X
+    STA entities+Entity::xpos, X
+
+    LDA vxlow ; apply friction
+    CLC 
+    ADC #$20
+    STA vxlow
+    BCC :+
+    INC vxhigh
+    :
+RTS 
+
 InputRight:
-    RTS 
+    LDA vxlow ; load the subpixel speed
+    CLC 
+    ADC #$40 ; add player speed
+    STA vxlow ; store new subpixel
+    LDA vxhigh
+    ADC #$00 ; add without clearing the carry. If vx low overflowed the true PX val goes up by 1
+    CMP #$02 ; compare to max speed
+    BCS :+ ; if speed is lower than max speed jump forward
+    LDA #$02 ; else load max speed
+    :
+    STA vxhigh ; store true pixel speed
+    ; add speed to current entity pos
+    ADC entities+Entity::xpos, X
+    STA entities+Entity::xpos, X
+
+    LDA vxlow ; apply friction
+    SEC 
+    SBC #$20
+    STA vxlow
+    BCS :+
+    DEC vxhigh
+    :
+RTS 
+
+
+
 InputStart:
     RTS 
 InputSelect:
@@ -804,6 +904,85 @@ InputStartRelease:
     RTS 
 InputSelectRelease:
     RTS
+
+;;;;;;;;
+; Collision
+;;;;;;;;
+
+CollideLeft:
+    LDA entities+Entity::xpos, X
+    SEC
+    SBC #$08 ; add 8 pixels for a single sprite 
+    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
+    CLC
+    ROR
+    CLC 
+    ROR 
+    CLC 
+    ROR
+    STA var_mem
+
+    LDA entities+Entity::ypos, X 
+    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
+    CLC
+    ROR
+    CLC 
+    ROR 
+    CLC 
+    ROR
+
+    ROL 
+    ROL 
+    ROL 
+    ROL 
+
+    CLC 
+    ADC var_mem
+    TAY 
+    LDA CollisionMap, Y 
+    JMP CheckCollisionResult
+
+CollideRight: ; only to be called dfrom process entities
+    LDA entities+Entity::xpos, X
+    CLC 
+    ADC #$08 ; add 8 pixels for a single sprite 
+    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
+    CLC
+    ROR
+    CLC 
+    ROR 
+    CLC 
+    ROR
+    STA var_mem
+
+    LDA entities+Entity::ypos, X 
+    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
+    CLC
+    ROR
+    CLC 
+    ROR 
+    CLC 
+    ROR
+
+    ROL 
+    ROL 
+    ROL 
+    ROL 
+
+    CLC 
+    ADC var_mem
+    TAY 
+    LDA CollisionMap, Y 
+    JMP CheckCollisionResult
+
+CheckCollisionResult:
+    BEQ Hit 
+    Miss:
+        LDA #$00
+        RTS 
+    Hit:
+        LDA #$01 
+        RTS 
 
 
 NMI:            ; this happens once a frame when the draw arm mabob is returning to the top of the screen
@@ -973,152 +1152,165 @@ OAMBuffer:
 
 
 
-
+; Meta tile definitions. The first 4 bytes refer to tiles in chr rom
+; The 5th byte is the collision for the block. 0=no collide 1 = collide
 brick:
-    .byte $00
-    .byte $01
-    .byte $10
-    .byte $11
+    .byte $00,$01,$10,$11 ; chr rom reference bytes
+    .byte $01 ; collision byte
 brick_hole:
-    .byte $02
-    .byte $03
-    .byte $12
-    .byte $13
+    .byte $02,$03,$12,$13
+    .byte $01
 brick_dark_left:
-    .byte $04
-    .byte $05
-    .byte $14
-    .byte $15
+    .byte $04,$05,$14,$15
+    .byte $01
 brick_dark_right:
-    .byte $06
-    .byte $07
-    .byte $16
-    .byte $17
+    .byte $06,$07
+    .byte $16,$17
+    .byte $01
 brick_bright_left:
-    .byte $08
-    .byte $09
-    .byte $18
-    .byte $19 
+    .byte $08,$09
+    .byte $18,$19
+    .byte $01 
 brick_bright_right:
-    .byte $0A
-    .byte $0B
-    .byte $1A 
-    .byte $1B
+    .byte $0A,$0B
+    .byte $1A,$1B
+    .byte $01
 earth:
     .byte $20
     .byte $21
     .byte $30
     .byte $31
+    .byte $01
 earth_top:
     .byte $22
     .byte $23
     .byte $32
     .byte $33
+    .byte $01
 arch_tl:
     .byte $0C
     .byte $0D
     .byte $1C
     .byte $1D
+    .byte $01
 arch_tr:
     .byte $0E
     .byte $0F
     .byte $1E
     .byte $1F
+    .byte $01
 arch_bl:
     .byte $2C
     .byte $2D
     .byte $3C
     .byte $3D
+    .byte $01
 arch_br:    
     .byte $2E
     .byte $2F
     .byte $3E
     .byte $3F
+    .byte $01
 moon_tl:
     .byte $40
     .byte $41
     .byte $50
     .byte $51
+    .byte $01
 moon_tr:
     .byte $42
     .byte $43
     .byte $52
     .byte $53
+    .byte $01
 moon_bl:
     .byte $60
     .byte $61
     .byte $70
     .byte $71
+    .byte $01
 moon_br:
     .byte $62
     .byte $63
     .byte $72
     .byte $73
+    .byte $01
 crack_v:
     .byte $44
     .byte $45
     .byte $54
     .byte $55
+    .byte $01
 crack_h:
     .byte $64
     .byte $65 
     .byte $74
     .byte $75
+    .byte $01
 crack:
     .byte $46
     .byte $47
     .byte $56
     .byte $57
+    .byte $01
 brick_lip_l:
     .byte $28
     .byte $29
     .byte $00
+    .byte $01
     .byte $01
 brick_lip_r:
     .byte $2A
     .byte $2B 
     .byte $10
     .byte $11
+    .byte $01
 brick_bulge_l:
     .byte $28
     .byte $29
     .byte $38
     .byte $39
+    .byte $01
 brick_bulge_r:
     .byte $2A
     .byte $2B
     .BYTE $3A 
     .BYTE $3B
+    .byte $01
 water_l:
     .byte $4C
     .byte $4D
     .BYTE $5C 
     .BYTE $5D
+    .byte $01
  water_r:
     .byte $4E
     .byte $4F
     .BYTE $5E 
-    .BYTE $5F 
+    .BYTE $5F
+    .byte $01 
 window_l:
     .byte $6C
     .byte $6D
     .BYTE $7C 
     .BYTE $7D
+    .byte $01    
 window_r:
     .byte $6E
     .byte $6F
     .BYTE $7E 
     .BYTE $7F 
+    .byte $01
 bars_l:
     .byte $8C
     .byte $8D
     .BYTE $9C 
     .BYTE $9D
+    .byte $01
 bars_r:
-    .byte $8E
-    .byte $8F
-    .BYTE $9E 
-    .BYTE $9F
+    .byte $8E,$8F
+    .BYTE $9E,$9F
+    .byte $01
 
 
 MetaTileList:

@@ -23,6 +23,7 @@
     NoEntity = 0
     Player = 1
     Player2 = 2
+    Slider = 3
 .endscope
 
 .struct Entity ;  base entity structure
@@ -57,10 +58,14 @@
     ButtonFlag: .res 1
     framecount: .res 1
     currentbank: .res 1
+    oambufferoffset: .res 1
     vxhigh: .res 1
     vxlow: .res 1
     vyhigh: .res 1
     vylow: .res 1
+    spritebufferposition: .res 1
+    temp: .res 1
+    temp2: .res 1
 
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
@@ -165,7 +170,7 @@ SetMirroring: ; TODO make sure this actually works? mmc1 is weird
 
 ; For the prng to work, it needs a seed of any nonzero number to start at
 InitSeed: 
-    LDA #$01
+    LDA #$08
     STA seed
     STA seed+1
 
@@ -225,30 +230,6 @@ SetAttributes:
     LDX #$00
     LDY #$00    
 
-; Spawn a player 
-LDA PlayerData
-STA jumppointer
-LDA PlayerData+1
-STA jumppointer+1
-LDA #$50
-LDX #$50
-JSR SpawnEntity
-LDA PlayerData
-STA jumppointer
-LDA PlayerData+1
-STA jumppointer+1
-LDA #$60
-LDX #$90
-JSR SpawnEntity
-LDA PlayerData
-STA jumppointer
-LDA PlayerData+1
-STA jumppointer+1
-LDA #$10
-LDY #$30
-JSR SpawnEntity 
-
-
 ; Set Control
 ; to configure MMC1 mapper, we need to write to 8000 repeatedly
 LDA #%00000010 ; This configures it to horizontal mirroring, 32kb of prg rom and two 8kb chr banks
@@ -279,16 +260,163 @@ STA $A000
     ;                             l
     ; set up for a screen load    V
 
-    LDA #< ScreenDefault ; take the low byte
-    STA world ; store low byte in z page
-    LDA #> ScreenDefault ; take the high  setubyte
-    STA world+1 ; etc
+    ; LDA #< ScreenDefault ; take the low byte
+    ; STA world ; store low byte in z page
+    ; LDA #> ScreenDefault ; take the high  setubyte
+    ; STA world+1 ; etc
+
+    ; LDA #<CollisionMap 
+    ; STA currentcollisionaddress
+    ; LDA #>CollisionMap
+    ; STA currentcollisionaddress+1
+
+    ; LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
+    ; STA $2006
+    ; LDA #$00
+    ; STA $2006
+
+    ; JSR LoadSingleScreen
+
+    LDA #<ScreenDefault2
+    STA world 
+    LDA #>ScreenDefault2
+    STA world +1
 
     LDA #<CollisionMap 
     STA currentcollisionaddress
     LDA #>CollisionMap
     STA currentcollisionaddress+1
+
+
+    LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
+    STA $2006
+    LDA #$00
+    STA $2006
+
     JSR LoadSingleScreen
+
+; Spawn a player 
+LDA #<PlayerData
+STA jumppointer
+LDA #>PlayerData
+STA jumppointer+1
+LDA #$40
+LDX #$30
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$40
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$60
+LDX #$50
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$40
+LDX #$60
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$70
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$60
+LDX #$80
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$40
+LDX #$70
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$80
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$60
+LDX #$80
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$70
+LDX #$90
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$40
+LDX #$A0
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$B0
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$C0
+JSR SpawnEntity
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$D0
+JSR SpawnEntity
+
+
+LDA #<SliderData
+STA jumppointer
+LDA #>SliderData
+STA jumppointer+1
+LDA #$50
+LDX #$D0
+JSR SpawnEntity
+
     ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;; Main Loop
@@ -297,10 +425,11 @@ STA $A000
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
-    JSR DoGameLogic 
+    JSR DoGameLogic
+    ; INC scrollx 
     JSR IncFrameCount   ; Counts to 59 then resets to 0
     JSR AlternateBanks
-    ;JSR DoScroll       
+    ; JSR DoScroll       
     JSR OAMBuffer   ; Sprite data is written to the buffer here
     ; JSR WriteToTileBuffer ; write to the tile buffer when scrolling
 
@@ -343,7 +472,7 @@ MAINLOOP:
     ORA #%00000100
     STA $2000 ; ???
 
-    LDA #%00111110
+    LDA #%10011110
     STA $2001 ; reenable rendering for the ppu
     ;JSR SoundPlayFrame
     INC nmidone 
@@ -382,6 +511,7 @@ RTS
 ;;;;;;;;;;;;;;;;;;;;
 
 DoGameLogic:
+    JSR ReadButtons
     JSR ProcessEntities
 
 ProcessEntities:
@@ -401,10 +531,46 @@ ProcessEntities:
 
     ProcessPlayer:
         JSR PlayerOneBehaviour
+        JSR ApplyGravity
         JMP EntityComplete
     ProcessPlayer2:
         JMP EntityComplete
+    ProcessSlider:
+        JSR ApplyGravity
+        LDA entities+Entity::generalpurpose, X 
+        BEQ MoveR
+        MoveL:
+            JSR CollideLeft
+            BNE :+
+            LDA entities+Entity::xpos, X 
+            CLC 
+            ADC #$FF 
+            STA entities+Entity::xpos, X 
+            JMP EntityComplete
+            :
+            LDA #$00
+            STA entities+Entity::generalpurpose, X
 
+        JSR CollideRight
+        BNE :+
+        :
+        JMP EntityComplete
+        MoveR:
+            JSR CollideRight
+            BNE :+
+            LDA entities+Entity::xpos, X 
+            CLC 
+            ADC #$01 
+            STA entities+Entity::xpos, X 
+            JMP EntityComplete
+            :
+            LDA #$01
+            STA entities+Entity::generalpurpose, X
+
+        JSR CollideRight
+        BNE :+
+        :
+        JMP EntityComplete
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
     ; If we now process another entity, it will be offset by the size of the struct in X, giving us the address of the next entity
@@ -426,19 +592,44 @@ RTS
 
 PlayerOneBehaviour:
     JSR CheckButtons
+
+ApplyGravity:
+    LDA vxhigh
+    BCC DoGravDown
+    JSR CollideUp
+    BNE :+
+    STA vyhigh
+    STA vylow
+    RTS 
+    :
+    DoGravDown:
+        JSR CollideDown
+        BNE EndGravity
+        LDA vylow
+        CLC 
+        ADC #$10
+        STA vylow
+        LDA vyhigh
+        ADC #$00
+        CMP #$02 
+        BCC :+
+        LDA #$02
+        :
+        LDA #$01
+        STA vyhigh
+        ADC entities+Entity::ypos, X 
+        STA entities+Entity::ypos, X 
+        RTS 
+EndGravity:
+    LDA #$00 
+    STA vyhigh
+    STA vylow
 RTS
 
 ; BEFORE CALL:
 ;  - load screen data address into 'world'
 ;  - load collision data addess into currentcollisionaddress 
 LoadSingleScreen:
-    LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA $2006
-    LDA #$00
-    STA $2006
-
-
-
     SEI ; disable all interuppts 
     LDA #%00010000
     STA $2000
@@ -450,6 +641,10 @@ LoadSingleScreen:
     LDA #$00
     STA currentrowodd
     STA currentroweven
+
+    LDA #$00 
+    LDY #$00
+    LDX #$00
 
     LoadScreenLoop:
         LDX #$10
@@ -502,9 +697,6 @@ LoadSingleScreen:
                 TAY
                 PLA 
                 STA (currentcollisionaddress), Y
-                TYA 
-                TAX
-
 
                 INX 
                 CPX #$10
@@ -526,6 +718,8 @@ LoadSingleScreen:
         CMP #$F0 
         BNE LoadScreenLoop
 
+ 
+
 EndScreenLoad:
     ; LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
     ; STA $2000
@@ -534,7 +728,7 @@ EndScreenLoad:
     ; LDA #%00111110
     ; STA $2001
 
-LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
+LDA #%10110000 ; enable NMI, change background to use second chr set of tiles ($1000)
 STA $2000
 ; Enabling sprites and background for left-most 8 pixels
 ; Enable sprites and background
@@ -548,14 +742,33 @@ ProcessEntityList: ; Jump table for processing entities
     .word SkipEntity
     .word ProcessPlayer
     .word ProcessPlayer2
+    .word ProcessSlider
 
 ; DrawEntityList:
 ;     .word 
 
-DrawSpriteList: ; this is a list of 
-    .word CheckEndSpriteDraw
-    .word DrawSingleSprite
-    .word DrawSingleSprite
+DrawSpriteList: ; this is a list of sprite definitions
+    .word NoDraw
+    .word MetaSpriteGhost
+    .word MetaSpriteGhost4
+    .word MetaSpriteSlider
+
+;MetaSpriteDefinitions
+NoDraw:
+    .byte $FF ; termination byte
+
+MetaSpriteGhost:
+    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
+MetaSpriteGhost4:
+    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset 
+    .byte $00,$00,$00,$08
+    .byte $08,$00,$00,$00
+    .byte $08,$00,$00,$08
+    .byte $FF
+MetaSpriteSlider:
+    .byte $00,$00,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
 
 ; This expects to find an x and a y pos in variable memory. It expheects an address in jumppointer pointing to the entity data
 SpawnEntity:
@@ -575,19 +788,24 @@ SpawnEntity:
         ADC #.sizeof(Entity)
         TAX 
         JMP EurydiceLoop
-    AddEurydice:
-        ;INC currententitynumber unused 
+    AddEurydice: 
+        LDY #$00
         PLA; grab x pos we set before jumping here
         STA entities+Entity::xpos, X
         PLA ; grab y pos 
         STA entities+Entity::ypos, X
-        LDA jumppointer ; grab entitiy type 
+        LDA (jumppointer),Y ; grab entity type 
+        ; LDA #$02
         STA entities+Entity::type, X
-        LDA jumppointer+1
+        INY
+        LDA (jumppointer), Y
         STA entities+Entity::spriteno, X
-        LDA jumppointer+2
+        INY 
+        LDA (jumppointer),Y
         STA entities+Entity::palette, X
-        JMP EndEurydiceSpawn
+        JSR Prng
+        AND #%00000001
+        STA entities+Entity::generalpurpose
 EndEurydiceSpawn:
     RTS
 
@@ -632,7 +850,10 @@ PlayerData:
     .byte EntityType::Player ; entity type 
     .byte $00 ; sprite number (on chr bank sheet) 
     .byte $00 ; palette to use 0/1/2/3
-
+SliderData:
+    .byte EntityType::Slider
+    .byte $01
+    .byte $01
 ;;;;;;;;;;;;;
 ;Input 
 ;;;;;;;;;;;;;
@@ -824,8 +1045,10 @@ EndButtons:
 RTS
 
 InputA:
-
-    RTS 
+    JSR CollideDown
+    BEQ EndInputA
+    EndInputA:
+        RTS 
 InputB:
     RTS 
 InputUp:
@@ -835,7 +1058,7 @@ InputDown:
 InputLeft:
     LDA vxlow ; load the subpixel speed
     SEC
-    SBC #$40 ; add player speed
+    SBC #$10 ; add player speed
     STA vxlow ; store new subpixel
     LDA vxhigh
     SBC #$00 ; add without clearing the carry. If vx low overflowed the true PX val goes up by 1
@@ -860,11 +1083,11 @@ RTS
 InputRight:
     LDA vxlow ; load the subpixel speed
     CLC 
-    ADC #$40 ; add player speed
+    ADC #$20 ; add player speed
     STA vxlow ; store new subpixel
     LDA vxhigh
     ADC #$00 ; add without clearing the carry. If vx low overflowed the true PX val goes up by 1
-    CMP #$02 ; compare to max speed
+    CMP #$01 ; compare to max speed
     BCS :+ ; if speed is lower than max speed jump forward
     LDA #$02 ; else load max speed
     :
@@ -912,68 +1135,174 @@ InputSelectRelease:
 CollideLeft:
     LDA entities+Entity::xpos, X
     SEC
-    SBC #$08 ; add 8 pixels for a single sprite 
-    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
-    CLC
-    ROR
-    CLC 
-    ROR 
-    CLC 
-    ROR
-    STA var_mem
+    SBC #$01 ; add 8 pixels for a single sprite
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    STA temp
 
     LDA entities+Entity::ypos, X 
-    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
-    CLC
-    ROR
-    CLC 
-    ROR 
-    CLC 
-    ROR
+    LSR 
+    LSR 
+    LSR 
+    LSR 
 
-    ROL 
-    ROL 
-    ROL 
-    ROL 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
 
     CLC 
-    ADC var_mem
+    ADC temp
     TAY 
     LDA CollisionMap, Y 
-    JMP CheckCollisionResult
+    RTS
 
 CollideRight: ; only to be called dfrom process entities
     LDA entities+Entity::xpos, X
     CLC 
     ADC #$08 ; add 8 pixels for a single sprite 
-    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
-    CLC
-    ROR
-    CLC 
-    ROR 
-    CLC 
-    ROR
-    STA var_mem
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    STA temp
 
     LDA entities+Entity::ypos, X 
-    ROR ; ror 4 times divides it 16, making the pixer position map to the smaller grid
-    CLC
-    ROR
-    CLC 
-    ROR 
-    CLC 
-    ROR
+    LSR 
+    LSR 
+    LSR 
+    LSR 
 
-    ROL 
-    ROL 
-    ROL 
-    ROL 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
 
     CLC 
-    ADC var_mem
+    ADC temp
     TAY 
     LDA CollisionMap, Y 
-    JMP CheckCollisionResult
+    RTS 
+
+CollideDown:
+    LDA entities+Entity::xpos, X
+    CLC 
+    ADC #$01 ; get the centre of the sprite(ish)
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+    STA temp
+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$09 
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    CLC 
+    ADC temp
+    TAY 
+    LDA CollisionMap, Y 
+    STA temp2
+
+    LDA entities+Entity::xpos, X
+    CLC 
+    ADC #$01 ; get the centre of the sprite(ish)
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+    STA temp
+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$09 
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    CLC 
+    ADC temp
+    TAY 
+    LDA CollisionMap, Y 
+    ORA temp2
+    RTS
+
+CollideUp:
+    LDA entities+Entity::xpos, X
+    CLC 
+    ADC #$01 ; get the centre of the sprite(ish)
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+    STA temp
+
+    LDA entities+Entity::ypos, X
+    SEC 
+    SBC #$01 
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    ASL 
+    ASL
+    ASL
+    ASL 
+
+    CLC 
+    ADC temp 
+    TAY 
+    LDA CollisionMap, Y 
+    STA temp2 
+
+    LDA entities+Entity::xpos, X
+    CLC 
+    ADC #$07 ; get the centre of the sprite(ish)
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+    STA temp
+
+    LDA entities+Entity::ypos, X
+    SEC 
+    SBC #$01 
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    ASL 
+    ASL
+    ASL
+    ASL 
+
+    CLC 
+    ADC temp 
+    TAY 
+    LDA CollisionMap, Y 
+    ORA temp2
+    RTS 
 
 CheckCollisionResult:
     BEQ Hit 
@@ -1016,8 +1345,10 @@ Prng:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 OAMBuffer:
-
+    ; Clear all sprite data from last frame 
     ClearSpriteBuffer:
+        LDA #$00 
+        STA spritebufferposition
         LDX #$00
         LDA #$FF 
         ClearBufferLoop:
@@ -1029,7 +1360,6 @@ OAMBuffer:
             LDX #$00
             LDY #$00
             LDA #$00
-            PHA
     DrawSprites:
         LDA entities+Entity::type, X 
         ASL 
@@ -1038,99 +1368,58 @@ OAMBuffer:
         STA jumppointer
         LDA DrawSpriteList+1, Y 
         STA jumppointer+1
-        PLA 
-        TAY 
-        JMP (jumppointer)
-  
-    DrawSingleSprite:
-        LDA entities+Entity::ypos, X 
-        SEC 
-        SBC #$01 ; for #reasons you always need to sub one from the y 
-        STA SpriteBuffer,Y 
-        INY 
-        LDA entities+Entity::spriteno, X
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::palette, X
-        STA SpriteBuffer, Y 
-        INY
-        LDA entities+Entity::xpos, X
-        STA SpriteBuffer, Y
-        INY 
+        LDY #$00
+        LDA (jumppointer), Y
+        CMP #$FF
+        BNE :+ 
         JMP CheckEndSpriteDraw
+         ; if we pull ff, it means we've hit a termination byte 
+        ; else begin drawing based on the address
+        :
+        DrawSpriteLoop:  
+        ; get y offset 
+            LDA (jumppointer), Y
+            CLC 
+            ADC entities+Entity::ypos, X
+            SEC 
+            SBC #$01 ; Ypos scanline is off by one and needs correcting 
+            STY temp
+            LDY spritebufferposition
+            STA SpriteBuffer, Y
+            INC spritebufferposition    
+            LDY temp 
+            INY 
 
-    DrawFourBlockSprites: ; This expects the sprie to be arranged horizontally in chrram top left -> top 
-        LDA entities+Entity::ypos, X 
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::spriteno, X
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::palette, X
-        STA SpriteBuffer, Y
-        INY
-        LDA entities+Entity::xpos, X
-        STA SpriteBuffer, Y
-        INY
+            LDA (jumppointer), Y 
+            STY temp 
+            LDY spritebufferposition
+            STA SpriteBuffer, Y 
+            LDY temp
+            INC spritebufferposition
+            INY
+
+            LDA (jumppointer), Y 
+            STY temp 
+            LDY spritebufferposition
+            STA SpriteBuffer, Y 
+            LDY temp 
+            INC spritebufferposition
+            INY 
+
+            LDA (jumppointer), Y 
+            CLC 
+            ADC entities+Entity::xpos, X 
+            STY temp 
+            LDY spritebufferposition
+            STA SpriteBuffer, Y 
+            LDY temp 
+            INY 
+            INC spritebufferposition
+
+            LDA (jumppointer), Y 
+            CMP #$FF 
+            BNE DrawSpriteLoop  
     
-        ;Sprite 2
-        LDA entities+Entity::ypos, X 
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::spriteno, X 
-        CLC 
-        ADC #$01
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::palette, X
-        STA SpriteBuffer, Y 
-        INY
-        LDA entities+Entity::xpos, X
-        CLC 
-        ADC #$08
-        STA SpriteBuffer, Y
-        INY
-         
-        ;sprite 3
-        LDA entities+Entity::ypos, X
-        CLC 
-        ADC #$08 
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::spriteno, X 
-        CLC
-        ADC #$02
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::palette, X
-        STA SpriteBuffer, Y 
-        INY
-        LDA entities+Entity::xpos, X
-        STA SpriteBuffer, Y
-        INY
-        
-        ;sprite 4
-        LDA entities+Entity::ypos, X
-        CLC 
-        ADC #$08 
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::spriteno, X 
-
-        CLC 
-        ADC #$03
-        STA SpriteBuffer, Y 
-        INY 
-        LDA entities+Entity::palette, X
-        STA SpriteBuffer, Y 
-        INY
-        LDA entities+Entity::xpos, X
-        CLC 
-        ADC #$08
-        STA SpriteBuffer, Y
-        INY
-        JMP CheckEndSpriteDraw
-
     CheckEndSpriteDraw:
         TXA 
         CLC 
@@ -1138,8 +1427,6 @@ OAMBuffer:
         TAX 
         CPX #entity_mem
         BEQ EndSpriteDraw
-        TYA
-        PHA
         JMP DrawSprites
 
     EndSpriteDraw:
@@ -1156,127 +1443,107 @@ OAMBuffer:
 ; The 5th byte is the collision for the block. 0=no collide 1 = collide
 brick:
     .byte $00,$01,$10,$11 ; chr rom reference bytes
-    .byte $01 ; collision byte
+    .byte $00 ; collision byte
 brick_hole:
     .byte $02,$03,$12,$13
-    .byte $01
+    .byte $00
 brick_dark_left:
     .byte $04,$05,$14,$15
-    .byte $01
+    .byte $00
 brick_dark_right:
     .byte $06,$07
     .byte $16,$17
-    .byte $01
+    .byte $00
 brick_bright_left:
     .byte $08,$09
     .byte $18,$19
-    .byte $01 
+    .byte $00 
 brick_bright_right:
     .byte $0A,$0B
     .byte $1A,$1B
-    .byte $01
+    .byte $00
 earth:
-    .byte $20
-    .byte $21
-    .byte $30
-    .byte $31
+    .byte $20,$21
+    .byte $30,$31
     .byte $01
 earth_top:
-    .byte $22
-    .byte $23
-    .byte $32
-    .byte $33
+    .byte $22,$23
+    .byte $32,$33
     .byte $01
 arch_tl:
-    .byte $0C
-    .byte $0D
-    .byte $1C
-    .byte $1D
-    .byte $01
+    .byte $0C,$0D
+    .byte $1C,$1D
+    .byte $00
 arch_tr:
-    .byte $0E
-    .byte $0F
-    .byte $1E
-    .byte $1F
-    .byte $01
+    .byte $0E,$0F
+    .byte $1E,$1F
+    .byte $00
 arch_bl:
-    .byte $2C
-    .byte $2D
-    .byte $3C
-    .byte $3D
-    .byte $01
+    .byte $2C,$2D
+    .byte $3C,$3D
+    .byte $00
 arch_br:    
-    .byte $2E
-    .byte $2F
-    .byte $3E
-    .byte $3F
-    .byte $01
+    .byte $2E,$2F
+    .byte $3E,$3F
+    .byte $00
 moon_tl:
-    .byte $40
-    .byte $41
-    .byte $50
-    .byte $51
-    .byte $01
+    .byte $40,$41
+    .byte $50,$51
+    .byte $00
 moon_tr:
-    .byte $42
-    .byte $43
-    .byte $52
-    .byte $53
-    .byte $01
+    .byte $42,$43
+    .byte $52,$53
+    .byte $00
 moon_bl:
-    .byte $60
-    .byte $61
-    .byte $70
-    .byte $71
-    .byte $01
+    .byte $60,$61
+    .byte $70,$71
+    .byte $00
 moon_br:
-    .byte $62
-    .byte $63
-    .byte $72
-    .byte $73
-    .byte $01
+    .byte $62,$63
+    .byte $72,$73
+    .byte $00
 crack_v:
     .byte $44
     .byte $45
     .byte $54
     .byte $55
-    .byte $01
+    .byte $00
 crack_h:
     .byte $64
     .byte $65 
     .byte $74
     .byte $75
-    .byte $01
+    .byte $00
 crack:
     .byte $46
     .byte $47
     .byte $56
     .byte $57
-    .byte $01
+    .byte $00
 brick_lip_l:
     .byte $28
     .byte $29
     .byte $00
     .byte $01
-    .byte $01
+    .byte $00
 brick_lip_r:
     .byte $2A
     .byte $2B 
     .byte $10
     .byte $11
-    .byte $01
+    .byte $00
 brick_bulge_l:
     .byte $28
     .byte $29
     .byte $38
     .byte $39
-    .byte $01
+    .byte $00
 brick_bulge_r:
     .byte $2A
     .byte $2B
     .BYTE $3A 
     .BYTE $3B
-    .byte $01
+    .byte $00
 water_l:
     .byte $4C
     .byte $4D
@@ -1294,25 +1561,103 @@ window_l:
     .byte $6D
     .BYTE $7C 
     .BYTE $7D
-    .byte $01    
+    .byte $00    
 window_r:
     .byte $6E
     .byte $6F
     .BYTE $7E 
     .BYTE $7F 
-    .byte $01
+    .byte $00
 bars_l:
     .byte $8C
     .byte $8D
     .BYTE $9C 
     .BYTE $9D
-    .byte $01
+    .byte $00
 bars_r:
     .byte $8E,$8F
     .BYTE $9E,$9F
+    .byte $00
+floor:
+    .byte $8A,$8B
+    .byte $9A,$9B
+    .byte $01     
+floor_no_collide:
+    .byte $88,$89 
+    .byte $98,$99 
+    .byte $00
+floor_l:
+    .byte $68,$69
+    .byte $78,$79
     .byte $01
-
-
+floor_r:
+    .byte $6A,$6B
+    .byte $7A,$7B
+    .byte $01
+floor_corner_l:
+    .byte $A8,$A9 
+    .byte $B8,$B9
+    .byte $01 
+floor_corner_r:
+    .byte $AA,$AB 
+    .byte $BA,$BB
+    .byte $01 
+floor_side_l:
+    .byte $C8,$C9 
+    .byte $D8,$D9 
+    .byte $01 
+floor_side_r:
+    .byte $CA,$CB 
+    .byte $DA,$DB
+    .byte $01 
+floor_corner_bot_l:
+    .byte $E8,$E9 
+    .byte $F8,$F9
+    .byte $01 
+floor_corner_bot_r:
+    .byte $EA,$EB 
+    .byte $FA,$FB
+    .byte $01 
+floor_corner_bot_mid:
+    .byte $E9,$EA 
+    .byte $F9,$FA
+    .byte $01 
+floor_corner_bot:
+    .byte $E6,$E7 
+    .byte $F6,$F7
+    .byte $01  
+candles:
+    .BYTE $A6,$A7 
+    .byte $B6,$B7
+    .byte $00 
+brazier:
+    .BYTE $A4,$A5 
+    .byte $B4,$B5
+    .byte $00
+pal1:
+    .byte $EE,$EE
+    .byte $EE,$EE
+    .byte $00
+pal2:
+    .byte $EF,$EF
+    .byte $EF,$EF
+    .byte $00
+pal3:
+    .byte $FE,$FE
+    .byte $FE,$FE
+    .byte $00
+pal4:
+    .byte $FF,$FF
+    .byte $FF,$FF
+    .byte $00
+brick_divided:
+    .byte $26, $27 
+    .byte $36, $37
+    .byte $00
+floor_middle:
+    .byte $A9,$AA
+    .byte $B9,$BA
+    .byte $01
 MetaTileList:
     .word brick ;00
     .word brick_hole ;01
@@ -1343,9 +1688,30 @@ MetaTileList:
     .word window_r;1A
     .word bars_l;1B
     .word bars_r;1C
+    .word floor ;1d
+    .word floor_no_collide ;1e
+    .word floor_l ;1f
+    .word floor_r ;20
+    .word floor_corner_l ;21
+    .word floor_corner_r ;22
+    .word floor_side_l ;23
+    .word floor_side_r ;24
+    .word floor_corner_bot_l ;25
+    .word floor_corner_bot_r ;26
+    .word floor_corner_bot_mid ;27
+    .word floor_corner_bot ;28
+    .word candles ;29
+    .word brazier ;2a
+    .word pal1 ;2b
+    .word pal2 ;2c
+    .word pal3 ;2d
+    .word pal4 ;2e
+    .word brick_divided ; 2f
+    .word floor_middle ; 30
+
 PaletteData:
-    .byte $0F,$01,$11,$21,  $0F,$02,$03,$13,  $0F,$07,$17,$27, $0F,$00,$10,$20  ;background palette data  
-    .byte $0F,$27,$14,$1A,  $0F,$09,$1C,$0C,  $0F,$2C,$30,$27, $0F,$0F,$36,$17  ;sprite palette data
+    .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$16,$07,$27, $0F,$05,$15,$30  ;background palette data  
+    .byte $0F,$05,$15,$30,  $0F,$09,$1C,$0C,  $0F,$2C,$30,$27, $0F,$0F,$36,$17  ;sprite palette data
 
 ScreenDefault: ; the  format of a screen is that each byte represents 1 meta tile, made up of 4 8x8 pixel blocks to save huge
 ; amounts ofbytes in the long run
@@ -1365,16 +1731,32 @@ ScreenDefault: ; the  format of a screen is that each byte represents 1 meta til
     .byte $07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$18,$17,$18,$07
     .byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
 
+ScreenDefault2:
+    .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
+    .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$0,$00,$00,$00,$00,$23
+    .byte $24,$11,$21,$30,$30,$22,$11,$0E,$0F,$15,$21,$22,$1C,$21,$22,$23
+    .byte $24,$00,$04,$05,$04,$05,$00,$10,$01,$00,$04,$05,$00,$04,$05,$23
+    .byte $24,$00,$04,$05,$00,$00,$1D,$1B,$1D,$19,$1A,$21,$22,$19,$1A,$23
+    .byte $24,$00,$04,$05,$00,$08,$09,$00,$05,$02,$00,$02,$10,$02,$00,$23
+    .byte $29,$00,$04,$05,$00,$0A,$0B,$00,$00,$02,$00,$02,$00,$02,$00,$29
+    .byte $24,$00,$21,$22,$00,$22,$21,$00,$10,$21,$1F,$20,$00,$00,$21,$23
+    .byte $24,$12,$23,$24,$02,$00,$00,$04,$05,$00,$00,$02,$00,$00,$00,$23
+    .byte $29,$12,$25,$26,$02,$00,$03,$04,$05,$02,$00,$02,$00,$1D,$30,$23
+    .byte $24,$10,$08,$09,$02,$00,$03,$04,$05,$02,$00,$02,$00,$10,$05,$23
+    .byte $24,$00,$0A,$0B,$02,$00,$03,$19,$1A,$02,$00,$19,$1A,$00,$00,$23
+    .byte $24,$00,$1F,$20,$00,$00,$1F,$20,$1F,$20,$00,$00,$1F,$20,$00,$23
+    .byte $29,$2F,$04,$04,$05,$2F,$05,$05,$04,$04,$2F,$2F,$05,$04,$2F,$29
+    .byte $07,$1D,$1E,$1E,$1D,$1D,$1E,$1E,$1E,$1E,$1D,$1D,$1E,$1E,$1D,$07
 
 AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
-    .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101
-    .byte %01000100, %00010001, %01000100, %00010001, %01000100, %00010001, %01011101, %01010111
-    .byte %00000100, %00000001, %00000100, %00000001, %00000100, %00000001, %00000100, %00000001
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %00010101, %01000101, %00010101, %01000101, %00010101, %01000101, %00010101, %01000101
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %00000000, %10000000
-    .byte %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010
+    .byte %00100010, %00000000, %00000000, %11000000, %00110000, %00000000, %00000000, %10001000
+    .byte %00100010, %01011010, %01011010, %00001100, %00000011, %01011010, %01001000, %10011010
+    .byte %00100010, %00000000, %00000000, %00010010, %00010010, %01001000, %00010010, %10001000
+    .byte %00100011, %10100000, %10000000, %00100000, %10000000, %10100000, %00000000, %10101000
+    .byte %00110010, %10101010, %00000100, %00000001, %00000100, %00000101, %00000000, %10101001
+    .byte %00100010, %00000000, %00000000, %00000000, %00000000, %00000000, %00000100, %10001001
+    .byte %00110010, %01011010, %01010000, %01011010, %01011010, %01010000, %01011010, %10001000
+    .byte %00101010, %00000000, %10101010, %00000000, %00000000, %10101010, %00000000, %10001010
 
 
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 

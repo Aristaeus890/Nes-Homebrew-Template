@@ -26,6 +26,18 @@
     Slider = 3
 .endscope
 
+.scope PlayerState
+    OnGround = $00
+    Jumping = $01
+    Falling = $02
+.endscope 
+
+.scope ButtonReturn
+    NoPress = 0
+    Press = 1
+    Release = 2
+.endscope
+
 .struct Entity ;  base entity structure
     type .byte ; each entity has its own type assigned, if you somehow make more than 255 entities than idk what to do
     xpos .byte ; x position
@@ -63,9 +75,11 @@
     vxlow: .res 1
     vyhigh: .res 1
     vylow: .res 1
+    playerstate: .res 1
     spritebufferposition: .res 1
     temp: .res 1
     temp2: .res 1
+    rng: .res 1 ; rng is stored here once a frame
 
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
@@ -530,9 +544,14 @@ ProcessEntities:
         JMP EntityComplete
 
     ProcessPlayer:
-        JSR PlayerOneBehaviour
-        JSR ApplyGravity
-        JMP EntityComplete
+        LDA playerstate
+        ASL 
+        TAY 
+        LDA PlayerStateMachine, Y
+        STA jumppointer
+        LDA PlayerStateMachine+1, Y
+        STA jumppointer+1
+        JMP (jumppointer)
     ProcessPlayer2:
         JMP EntityComplete
     ProcessSlider:
@@ -590,8 +609,67 @@ ProcessEntities:
     NOP
 RTS
 
-PlayerOneBehaviour:
-    JSR CheckButtons
+PlayerStateMachine:
+    .word PlayerOnFloor
+    .word PlayerJumping
+    .word PlayerFalling
+
+PlayerOnFloor:
+    JSR CollideDown
+    BNE :+
+    LDA #$02 
+    STA playerstate
+    :
+    JSR CheckRight
+    BEQ :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+    :
+    JSR CheckLeft
+    BEQ :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+    :
+    JMP EntityComplete 
+PlayerJumping:
+    JMP EntityComplete
+PlayerFalling:
+    JSR CheckRight
+    BEQ :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+    :
+    JSR CheckLeft
+    BEQ :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+    :
+    JSR CollideDown
+    BEQ :+
+        LDA #$00 
+        STA playerstate
+        JMP EntityComplete
+    :    
+    LDA vylow
+    CLC 
+    ADC #$10
+    STA vylow
+    LDA vyhigh
+    ADC $00
+    STA vyhigh
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X
+    
+    JMP EntityComplete
 
 ApplyGravity:
     LDA vxhigh
@@ -895,17 +973,22 @@ CheckA:
     LDA ButtonFlag ; if the button is pressed, set this so that we can check release next frame
     ORA #$01
     STA ButtonFlag
-    JSR InputA
-    JMP CheckB
+    LDA #$01 
+    RTS
 
     CheckARelease: ; If the button isn't pressed, check whether it was pressed last frame and released
         LDA ButtonFlag
         AND #$01
-        BEQ CheckB
+        BEQ :+
         LDA ButtonFlag
         EOR #$01 
         STA ButtonFlag
-        JSR InputARelease
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
 CheckB:
 
     LDA buttons 
@@ -914,17 +997,21 @@ CheckB:
     LDA ButtonFlag
     ORA #$02
     STA ButtonFlag
-    JSR InputB
-    JMP CheckSelect
+    LDA ButtonReturn::Press
+    RTS
 
     CheckBRelease:
         LDA ButtonFlag
         AND #$02
-        BEQ CheckSelect
+        BEQ :+
         LDA ButtonFlag
         EOR #$02 
         STA ButtonFlag
-        JSR InputBRelease
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
 CheckSelect:
     LDA buttons
@@ -932,18 +1019,21 @@ CheckSelect:
     BEQ CheckSelectRelease 
     LDA ButtonFlag
     ORA #$04 
-    STA ButtonFlag
-    JSR InputSelect
-    JMP CheckStart
-
+    STA ButtonFlag    
+    LDA ButtonReturn::Press
+    RTS
     CheckSelectRelease:
         LDA ButtonFlag
-        AND #$04 
-        BEQ CheckStart
+        AND #$04
+        BEQ :+
         LDA ButtonFlag
         EOR #$04 
         STA ButtonFlag
-        JSR InputSelectRelease
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
 CheckStart:
     LDA buttons
@@ -952,17 +1042,20 @@ CheckStart:
     LDA ButtonFlag
     ORA #$08
     STA ButtonFlag
-    JSR InputStart
-    JMP CheckUp
-
+    LDA ButtonReturn::Press
+    RTS
     CheckStartRelease:
         LDA ButtonFlag
-        AND #$08 
-        BEQ CheckUp
+        AND #$08
+        BEQ :+
         LDA ButtonFlag
         EOR #$08 
         STA ButtonFlag
-        JSR InputStartRelease
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
 CheckUp:  
     LDA buttons
@@ -971,18 +1064,21 @@ CheckUp:
     LDA ButtonFlag
     ORA #$10
     STA ButtonFlag
-    JSR InputUp
-    JMP CheckDown
-
+    LDA ButtonReturn::Press
+    RTS
     CheckUpRelease:
         LDA ButtonFlag
         AND #$10
-        BEQ CheckDown
-        LDA ButtonFlag 
-        EOR #$10
+        BEQ :+
+        LDA ButtonFlag
+        EOR #$10 
         STA ButtonFlag
-        JSR InputUpRelease
-        
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
 CheckDown:
     LDA buttons
     AND #%00000100
@@ -990,18 +1086,21 @@ CheckDown:
     LDA ButtonFlag 
     ORA #$20 
     STA ButtonFlag 
-    JSR InputDown
-    JMP CheckLeft
-
+    LDA ButtonReturn::Press
+    RTS
     CheckDownRelease:
         LDA ButtonFlag
-        AND #$20 
-        BEQ CheckLeft 
+        AND #$20
+        BEQ :+
         LDA ButtonFlag
         EOR #$20 
         STA ButtonFlag
-        JSR InputDownRelease   
-  
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
 CheckLeft:
     LDA buttons
     AND #%00000010
@@ -1009,17 +1108,20 @@ CheckLeft:
     LDA ButtonFlag
     ORA #$40 
     STA ButtonFlag 
-    JSR InputLeft
-    JMP CheckRight
-
+    LDA #$01
+    RTS
     CheckLeftRelease:
         LDA ButtonFlag
-        AND #$40 
-        BEQ CheckRight 
+        AND #$04
+        BEQ :+
         LDA ButtonFlag
-        EOR #$40 
+        EOR #$04 
         STA ButtonFlag
-        JSR InputLeftRelease
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
 
 CheckRight:
 
@@ -1029,18 +1131,21 @@ CheckRight:
     LDA ButtonFlag 
     ORA #$80 
     STA ButtonFlag
-    JSR InputRight 
-    JMP EndButtons
-
+    LDA #$01
+    RTS
     CheckRightRelease:
         LDA ButtonFlag
         AND #$80
-        BEQ EndButtons
-        LDA ButtonFlag 
+        BEQ :+
+        LDA ButtonFlag
         EOR #$80 
         STA ButtonFlag
-        JSR InputRightRelease
- 
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
 EndButtons:
 RTS
 

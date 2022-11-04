@@ -4,7 +4,7 @@
 ;FEATURES
 ; - Entity System
 ; - Bank Swapping between 2 chr banks
-
+; - Animations 
 
 ; INes 1.0
 .segment "HEADER" 
@@ -23,7 +23,11 @@
     NoEntity = 0
     Player = 1
     Player2 = 2
-    Slider = 3
+    Player3 = 3
+    Player4 = 4
+    Slider = 5
+    ProjectileSpell = 6
+
 .endscope
 
 .scope PlayerState
@@ -42,13 +46,15 @@
     type .byte ; each entity has its own type assigned, if you somehow make more than 255 entities than idk what to do
     xpos .byte ; x position
     ypos .byte ; y position
-    spriteno .byte ;
+    attributes .byte ;
     palette .byte ; which of the 4 active palettes this sprite should use
     generalpurpose .byte ; this has no specific use, it can be defined on a per entity basis
+    animationframe .byte
+    animationtimer .byte
 .endstruct
 
 .segment "ZEROPAGE" ; 0-FF. One page of ram that is faster access than rest of the ram. Use for values most frequently used
-    MAXENTITIES = 30; max allowed number of entities. Each entity takes a number of bytes in the zero page equal to the entity struct
+    MAXENTITIES =15; max allowed number of entities. Each entity takes a number of bytes in the zero page equal to the entity struct
     ; this CANNOT run over the end of the zero page or it will not work. If you want more entities, you will need to dedicate a non zero
     ; page ram segment to it
     entities: .res .sizeof(Entity) * MAXENTITIES ; 6 * 30 = 180/256 bytes
@@ -57,6 +63,7 @@
     world: .res 2 ; this is a pointer to the address of the current screen we want to fetch tiles on
     seed: .res 2 ; the seed for the pseudo rng. This will be inited to anything by 0 later
     jumppointer: .res 2 ; used to jump to specic places in memory with jump tables
+    jumppointer2: .res 2
     nmidone: .res 1 ; value to check to see if the nmi is done
     scrollx: .res 1 ; how far the screen is scrolled in x dir
     scrolly: .res 1 ; how far the screen is scrolled in y dir
@@ -86,6 +93,19 @@
     TileBufferH = $0300 ; $0300 -> 030F ; Tiles that need to be written when the screen has scrolled are stored here
     CollisionMap = $0310 ; 0310 -> 0400 ; 240 byte collision map for tile collision
     CurrentBackgroundPalette = $04C0 ; -> 04CF
+    SpawnerIndex = $04D0 ; -> 04D0 
+    SpawnerStack = $04D1 ; -> 04FD 3X15 
+    
+    PPUControl = $2000 
+    PPUMask= $2001 
+    PPUStatus = $2002
+    OAMAddress =$2003
+    OAMData = $2004
+    PPUAddress = $2005 
+    PPUScroll = $2006
+    PPUData = $2007 
+    OAMDMA = $4014
+
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
         SEI ; Disables all interrupts
@@ -102,13 +122,13 @@
         INX ; #$FF + 1 => #$00
 
         ; Zero out the PPU registers
-        STX $2000
-        STX $2001
+        STX PPUControl
+        STX PPUMask
 
         STX $4010
 
     :
-        BIT $2002 ; this waits for a vblank
+        BIT PPUStatus ; this waits for a vblank
         BPL :-
 
         TXA
@@ -132,18 +152,18 @@ CLEARMEM:
 
 ; wait for vblank. We want to wait for the system to do one scan of the screen before we do anthing else
 :
-    BIT $2002
+    BIT PPUStatus
     BPL :-
 
     LDA #$02
-    STA $4014
+    STA OAMDMA
     NOP
 
     ; $3F00
     LDA #$3F
     STA $2006
     LDA #$00
-    STA $2006
+    STA PPUScroll
 
     LDX #$00
 
@@ -195,11 +215,11 @@ InitWorld:
     STA world+1 ; store high into the world address +1 i.e the second byte of the address
 
 ; setup address in PPU for nametable data
-    BIT $2002 ; reading 2002 sets the latch to access scrolling and writing to the PPU 
+    BIT PPUStatus ; reading PPUStatus sets the latch to access scrolling and writing to the PPU 
     LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA $2006
+    STA PPUScroll
     LDA #$00
-    STA $2006
+    STA PPUScroll
 
     LDX #$00
     LDY #$00
@@ -231,9 +251,9 @@ InitWorld:
 SetAttributes:
     LDX #$00
     LDA #$23
-    STA $2006
+    STA PPUScroll
     LDA #$C0
-    STA $2006
+    STA PPUScroll
     AttributeLoop:
     LDA AttributesDefault, X 
     STA $2007
@@ -285,9 +305,9 @@ STA $A000
     ; STA currentcollisionaddress+1
 
     ; LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    ; STA $2006
+    ; STA $PPUScroll
     ; LDA #$00
-    ; STA $2006
+    ; STA $PPUScroll
 
     ; JSR LoadSingleScreen
 
@@ -303,132 +323,81 @@ STA $A000
 
 
     LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA $2006
+    STA PPUScroll
     LDA #$00
-    STA $2006
+    STA PPUScroll
 
     JSR LoadSingleScreen
 
-; Spawn a player 
-LDA #<PlayerData
-STA jumppointer
-LDA #>PlayerData
-STA jumppointer+1
-LDA #$40
-LDX #$30
-JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
-LDX #$40
-JSR SpawnEntity
-
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$60
+LDY #$50
 LDX #$50
+LDA #EntityType::Player
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$40
+LDY #$30
+LDX #$10
+LDA #EntityType::ProjectileSpell
+JSR SpawnEntity
+
+LDY #$00
+LDX #$10
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$60
+LDX #$20
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$40
+LDX #$30
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$00
+LDX #$40
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$00
+LDX #$50
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$00
 LDX #$60
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
+LDY #$00
 LDX #$70
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$60
+LDY #$00
 LDX #$80
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$40
-LDX #$70
-JSR SpawnEntity
-
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
-LDX #$80
-JSR SpawnEntity
-
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$60
-LDX #$80
-JSR SpawnEntity
-
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$70
+LDY #$00
 LDX #$90
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$40
+LDY #$00
 LDX #$A0
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
+LDY #$0B
 LDX #$B0
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
+LDY #$0A
 LDX #$C0
-JSR SpawnEntity
-
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
-LDX #$D0
-JSR SpawnEntity
-
-
-LDA #<SliderData
-STA jumppointer
-LDA #>SliderData
-STA jumppointer+1
-LDA #$50
-LDX #$D0
+LDA #EntityType::Slider
 JSR SpawnEntity
 
     ; Load screen also enables interrupts and rendering to finish
@@ -439,6 +408,11 @@ JSR SpawnEntity
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
+    JSR Setrng
+    ; LDY #$00
+    ; LDX #$20
+    ; LDA #EntityType::Slider
+    ; JSR SpawnEntity
     JSR DoGameLogic
     ; INC scrollx 
     JSR IncFrameCount   ; Counts to 59 then resets to 0
@@ -473,7 +447,7 @@ MAINLOOP:
     PHA
 
     LDA #$00
-    STA $2001 ; disable rendering before we access the ppu for safety
+    STA PPUMask ; disable rendering before we access the ppu for safety
 
     ;JSR DrawColumnNMI
     JSR ReadSprites ; Get the sprites from the sprite buffer and write them to the ppu  
@@ -484,10 +458,10 @@ MAINLOOP:
     LDA #%10010000
     ORA currenttable
     ORA #%00000100
-    STA $2000 ; ???
+    STA PPUControl ; ???
 
     LDA #%10011110
-    STA $2001 ; reenable rendering for the ppu
+    STA PPUMask ; reenable rendering for the ppu
     ;JSR SoundPlayFrame
     INC nmidone 
 
@@ -500,23 +474,23 @@ MAINLOOP:
     
     RTI
 
-; Loading into 4014 automatically takes what you give as a high byte and writes 256 bytes to the PPU (so 02 == 0200 all thr way to FF)
+; Loading into OAMDMA automatically takes what you give as a high byte and writes 256 bytes to the PPU (so 02 == 0200 all thr way to FF)
 ; In a real nes this neads to be done every frame b/c dynamic ram degradation, its technically possible to avoid in some emulators, but best just to do it. 
 ReadSprites:
     LDA #$00
     STA $2003
     LDA #$02 ; copy sprite data from $0200 => PPU memory for display automatically.
-    STA $4014
+    STA OAMDMA
     LDX #$00
 RTS
 
 ReadScroll:
     SetScroll:
-    LDA $2002 ; reading from 2002 sets a latch that allows you to set the scroll in 2005
+    LDA PPUStatus ; reading from PPUStatus sets a latch that allows you to set the scroll in PPUAddress
     LDA scrollx
-    STA $2005
+    STA PPUAddress
     LDA scrolly
-    STA $2005
+    STA PPUAddress
 RTS
 
 
@@ -525,8 +499,23 @@ RTS
 ;;;;;;;;;;;;;;;;;;;;
 
 DoGameLogic:
+    JSR ProcessSpawnStack
     JSR ReadButtons
     JSR ProcessEntities
+
+ProcessSpawnStack:
+    ; LDY SpawnerIndex
+    ; BEQ EndProcessSpawnStack
+    ; LDA SpawnerStack, Y 
+    ; DEC SpawnerIndex
+    ; LDX SpawnerIndex, Y 
+    ; DEC SpawnerIndex
+    ; LDY SpawnerIndex, Y 
+    ; DEC SpawnerIndex
+    ; JSR SpawnEntity
+
+EndProcessSpawnStack:
+    RTS 
 
 ProcessEntities:
     LDX #$00
@@ -554,11 +543,26 @@ ProcessEntities:
         JMP (jumppointer)
     ProcessPlayer2:
         JMP EntityComplete
+    ProcessPlayer3:
+        JMP EntityComplete
+    ProcessPlayer4:
+        JMP EntityComplete
     ProcessSlider:
+        DEC entities+Entity::animationtimer, X 
+        LDA entities+ Entity::animationtimer, X
+        BNE :+
+        LDA #$01
+        EOR entities+ Entity::animationframe, X
+        STA entities+ Entity::animationframe, X
+        LDA #$0A 
+        STA entities+ Entity::animationtimer, X
+        :
         JSR ApplyGravity
         LDA entities+Entity::generalpurpose, X 
         BEQ MoveR
         MoveL:
+            LDA #%01000000
+            STA entities+Entity::attributes, X
             JSR CollideLeft
             BNE :+
             LDA entities+Entity::xpos, X 
@@ -575,6 +579,8 @@ ProcessEntities:
         :
         JMP EntityComplete
         MoveR:
+            LDA #%00000000
+            STA entities+Entity::attributes, X
             JSR CollideRight
             BNE :+
             LDA entities+Entity::xpos, X 
@@ -590,6 +596,16 @@ ProcessEntities:
         BNE :+
         :
         JMP EntityComplete
+
+    ProcessProjectileSpell:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA ProjectileSpellStateMachine, Y 
+        STA jumppointer
+        LDA ProjectileSpellStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
     ; If we now process another entity, it will be offset by the size of the struct in X, giving us the address of the next entity
@@ -614,11 +630,29 @@ PlayerStateMachine:
     .word PlayerJumping
     .word PlayerFalling
 
+ProjectileSpellStateMachine:
+    .word ProjectileSpellMovingLeft 
+    .word ProjectileSpellMovingRight
+    .word ProjectileSpellDissipating
+
+; Entity Behaviours
+
 PlayerOnFloor:
+    DEC entities+Entity::animationtimer, X
+    LDA entities+Entity::animationtimer, X
+    BNE :+
+    LDA #$20 
+    STA entities+Entity::animationtimer, x
+    LDA entities+Entity::animationframe, X
+    EOR #$01 
+    STA entities+Entity::animationframe, X
+    : 
     JSR CollideDown
     BNE :+
     LDA #$02 
     STA playerstate
+    STA entities+Entity::animationframe
+    JMP EntityComplete
     :
     JSR CheckRight
     BEQ :+
@@ -636,6 +670,8 @@ PlayerOnFloor:
     :
     JMP EntityComplete 
 PlayerJumping:
+
+
     JMP EntityComplete
 PlayerFalling:
     JSR CheckRight
@@ -656,6 +692,7 @@ PlayerFalling:
     BEQ :+
         LDA #$00 
         STA playerstate
+        STA entities+Entity::animationframe
         JMP EntityComplete
     :    
     LDA vylow
@@ -669,6 +706,89 @@ PlayerFalling:
     ADC entities+Entity::ypos, X
     STA entities+Entity::ypos, X
     
+    JMP EntityComplete
+
+ProjectileSpellMovingLeft:
+    JSR CollideLeft
+    BEQ :+
+    LDA #$02
+    STA entities+Entity::generalpurpose, X
+    LDA #$03
+    STA entities+Entity::animationframe, X
+    LDA #$10
+    STA entities+Entity::animationtimer, X
+    JMP EntityComplete
+    :
+    DEC entities+Entity::animationtimer, X
+    LDA entities+Entity::animationtimer, X
+    BNE :+
+    LDA #$0A
+    STA entities+Entity::animationtimer, X
+    INC entities+Entity::animationframe, X
+    LDA entities+Entity::animationframe, X
+    CMP #$03
+    BNE :+
+    LDA #$00 
+    STA entities+Entity::animationframe, X
+    :
+    LDA entities+Entity::xpos, X 
+    SEC 
+    SBC #$01
+    STA entities+Entity::xpos, X
+    JMP EntityComplete
+ProjectileSpellMovingRight:
+    JSR CollideRight
+    BNE :+
+    LDA #$02
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+    :
+    DEC entities+Entity::animationtimer
+    LDA entities+Entity::animationtimer
+    BNE :+
+    LDA #$10
+    STA entities+Entity::animationtimer
+    INC entities+Entity::animationframe
+    LDA entities+Entity::animationframe
+    CMP #$03
+    BNE :+
+    LDA #$00 
+    STA entities+Entity::animationframe
+    :
+    LDA entities+Entity::xpos, X 
+    CLC  
+    ADC #$01
+    STA entities+Entity::xpos, X
+    JMP EntityComplete
+ProjectileSpellDissipating:
+    INC entities+Entity::animationframe, X
+    LDA entities+Entity::animationframe, X
+    CMP #$06
+    BNE :+
+    ; INC entities+Entity::xpos, X
+    ; DEC entities+Entity::animationtimer, X
+    ; LDA entities+Entity::animationtimer, X 
+    ; BNE :+
+    ; LDA #$10
+    ; STA entities+Entity::animationtimer
+    ; INC entities+Entity::animationframe, X 
+    ; LDA entities+Entity::animationframe, X
+    ; CMP #$07
+    ; BNE :+
+    JMP ClearEntity
+    :
+    JMP EntityComplete
+
+ClearEntity:
+    LDA #$00 
+    STA entities+Entity::type, X
+    STA entities+Entity::xpos, X
+    STA entities+Entity::ypos, X
+    STA entities+Entity::attributes, X
+    STA entities+Entity::palette, X
+    STA entities+Entity::generalpurpose, X
+    STA entities+Entity::animationframe, X
+    STA entities+Entity::animationtimer, X
     JMP EntityComplete
 
 ApplyGravity:
@@ -710,10 +830,10 @@ RTS
 LoadSingleScreen:
     SEI ; disable all interuppts 
     LDA #%00010000
-    STA $2000
+    STA PPUControl
 
     LDA #$00000000 ; disable all rendering
-    STA $2000
+    STA PPUControl
 
 
     LDA #$00
@@ -738,10 +858,10 @@ LoadSingleScreen:
             LDY #$00 
             ; the first two bytes are uploaded directly to the ppu, as they are on the same row
             LDA (jumppointer), Y 
-            STA $2007
+            STA PPUData
             INY 
             LDA (jumppointer), Y 
-            STA $2007
+            STA PPUData
             INC currentrowodd
             DEX 
             BNE LoadOddRow ; break this loop when we've done one row
@@ -762,10 +882,10 @@ LoadSingleScreen:
                 LDY #$02
 
                 LDA (jumppointer), Y 
-                STA $2007
+                STA PPUData
                 INY 
                 LDA (jumppointer), Y 
-                STA $2007
+                STA PPUData
                 INC currentroweven
 
                 INY ; 5th byte is collision data 
@@ -800,59 +920,57 @@ LoadSingleScreen:
 
 EndScreenLoad:
     ; LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
-    ; STA $2000
+    ; STA PPUControl
     ; ; Enabling sprites and background for left-most 8 pixels
     ; ; Enable sprites and background
-    ; LDA #%00111110
-    ; STA $2001
+    ; LDA #%001`11110
+    ; STA $PPUMask
 
 LDA #%10110000 ; enable NMI, change background to use second chr set of tiles ($1000)
-STA $2000
+STA PPUControl
 ; Enabling sprites and background for left-most 8 pixels
 ; Enable sprites and background
 LDA #%00111110
-STA $2001
+STA PPUMask
 CLI
 RTS
 
+; X, Y and type in X, Y , A
+AddEntityToStack:
+    PHA 
+    TXA 
+    PHA 
+    TYA 
+    PHA 
+    LDY SpawnerIndex
+    CMP #$3C 
+    BEQ SpawnImmediately
+    PLA 
+    STA SpawnerStack, Y
+    INY 
+    PLA 
+    STA SpawnerStack, Y 
+    INY
+    STY SpawnerIndex
+    RTS  
 
-ProcessEntityList: ; Jump table for processing entities
-    .word SkipEntity
-    .word ProcessPlayer
-    .word ProcessPlayer2
-    .word ProcessSlider
 
-; DrawEntityList:
-;     .word 
+SpawnImmediately:
+    PLA 
+    TAY 
+    PLA 
+    TAX 
+    PLA 
+    JSR SpawnEntity
+    RTS 
 
-DrawSpriteList: ; this is a list of sprite definitions
-    .word NoDraw
-    .word MetaSpriteGhost
-    .word MetaSpriteGhost4
-    .word MetaSpriteSlider
-
-;MetaSpriteDefinitions
-NoDraw:
-    .byte $FF ; termination byte
-
-MetaSpriteGhost:
-    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-MetaSpriteGhost4:
-    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset 
-    .byte $00,$00,$00,$08
-    .byte $08,$00,$00,$00
-    .byte $08,$00,$00,$08
-    .byte $FF
-MetaSpriteSlider:
-    .byte $00,$00,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-
-; This expects to find an x and a y pos in variable memory. It expheects an address in jumppointer pointing to the entity data
+; X, Y and type in X,Y,A 
 SpawnEntity:
     PHA 
     TXA 
-    PHA ; x and y are on the stack
+    PHA 
+    TYA 
+    PHA ; put ent type, x, y on stack
     LDX #$00
     EurydiceLoop:
         CPX #entity_mem
@@ -867,24 +985,22 @@ SpawnEntity:
         TAX 
         JMP EurydiceLoop
     AddEurydice: 
-        LDY #$00
-        PLA; grab x pos we set before jumping here
-        STA entities+Entity::xpos, X
-        PLA ; grab y pos 
+        PLA; grab y pos we set before jumping here
         STA entities+Entity::ypos, X
-        LDA (jumppointer),Y ; grab entity type 
-        ; LDA #$02
+        PLA ; grab x pos 
+        STA entities+Entity::xpos, X
+        PLA 
         STA entities+Entity::type, X
-        INY
-        LDA (jumppointer), Y
-        STA entities+Entity::spriteno, X
-        INY 
-        LDA (jumppointer),Y
-        STA entities+Entity::palette, X
         JSR Prng
         AND #%00000001
-        STA entities+Entity::generalpurpose
+        STA entities+Entity::generalpurpose, X
+        LDA #$01 
+        STA entities+Entity::animationtimer
+        RTS 
 EndEurydiceSpawn:
+    PHA 
+    PHA 
+    PHA
     RTS
 
 IncFrameCount:
@@ -1305,7 +1421,7 @@ CollideDown:
 
     LDA entities+Entity::ypos, X
     CLC 
-    ADC #$09 
+    ADC #$08
     LSR 
     LSR 
     LSR 
@@ -1324,7 +1440,7 @@ CollideDown:
 
     LDA entities+Entity::xpos, X
     CLC 
-    ADC #$01 ; get the centre of the sprite(ish)
+    ADC #$07 ; get the centre of the sprite(ish)
     LSR 
     LSR 
     LSR 
@@ -1333,7 +1449,7 @@ CollideDown:
 
     LDA entities+Entity::ypos, X
     CLC 
-    ADC #$09 
+    ADC #$08
     LSR 
     LSR 
     LSR 
@@ -1444,7 +1560,10 @@ Prng:
 	CMP #00     ; reload flags
 	RTS
 
-
+Setrng:
+    JSR Prng
+    STA rng
+    RTS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; OAM Buffer Handling ; All sprite data for the frame must be written into the OAM so that it can be sent to the PPU in vblank
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1469,61 +1588,63 @@ OAMBuffer:
         LDA entities+Entity::type, X 
         ASL 
         TAY 
-        LDA DrawSpriteList, Y 
+        LDA DrawSpriteList, Y
         STA jumppointer
-        LDA DrawSpriteList+1, Y 
+        LDA DrawSpriteList+1, Y  
         STA jumppointer+1
+        JMP (jumppointer)
+
+    DrawSpriteInit:
         LDY #$00
-        LDA (jumppointer), Y
-        CMP #$FF
-        BNE :+ 
-        JMP CheckEndSpriteDraw
-         ; if we pull ff, it means we've hit a termination byte 
-        ; else begin drawing based on the address
-        :
-        DrawSpriteLoop:  
+    DrawSpriteLoop:  
+        LDA jumppointer, Y
+
         ; get y offset 
-            LDA (jumppointer), Y
-            CLC 
-            ADC entities+Entity::ypos, X
-            SEC 
-            SBC #$01 ; Ypos scanline is off by one and needs correcting 
-            STY temp
-            LDY spritebufferposition
-            STA SpriteBuffer, Y
-            INC spritebufferposition    
-            LDY temp 
-            INY 
+        LDA (jumppointer), Y
+        CLC 
+        ADC entities+Entity::ypos, X
+        SEC 
+        SBC #$01 ; Ypos scanline is off by one and needs correcting 
+        STY temp
+        LDY spritebufferposition
+        STA SpriteBuffer, Y
+        INC spritebufferposition    
+        LDY temp 
+        INY 
 
-            LDA (jumppointer), Y 
-            STY temp 
-            LDY spritebufferposition
-            STA SpriteBuffer, Y 
-            LDY temp
-            INC spritebufferposition
-            INY
+        ; Tile
+        LDA (jumppointer), Y 
+        ; ORA entities+Entity::attributes
+        ; EOR #%11000000
+        STY temp 
+        LDY spritebufferposition
+        STA SpriteBuffer, Y 
+        LDY temp
+        INC spritebufferposition
+        INY
+        ; Attributes
+        LDA (jumppointer), Y
+        ORA entities+Entity::attributes, X 
+        STY temp 
+        LDY spritebufferposition
+        STA SpriteBuffer, Y 
+        LDY temp 
+        INC spritebufferposition
+        INY 
 
-            LDA (jumppointer), Y 
-            STY temp 
-            LDY spritebufferposition
-            STA SpriteBuffer, Y 
-            LDY temp 
-            INC spritebufferposition
-            INY 
+        LDA (jumppointer), Y 
+        CLC 
+        ADC entities+Entity::xpos, X 
+        STY temp 
+        LDY spritebufferposition
+        STA SpriteBuffer, Y 
+        LDY temp 
+        INY 
+        INC spritebufferposition
 
-            LDA (jumppointer), Y 
-            CLC 
-            ADC entities+Entity::xpos, X 
-            STY temp 
-            LDY spritebufferposition
-            STA SpriteBuffer, Y 
-            LDY temp 
-            INY 
-            INC spritebufferposition
-
-            LDA (jumppointer), Y 
-            CMP #$FF 
-            BNE DrawSpriteLoop  
+        LDA (jumppointer), Y 
+        CMP #$FF 
+        BNE DrawSpriteLoop  
     
     CheckEndSpriteDraw:
         TXA 
@@ -1536,6 +1657,101 @@ OAMBuffer:
 
     EndSpriteDraw:
         RTS 
+
+; Draw list 
+SkipDraw:
+    JMP CheckEndSpriteDraw
+
+DrawPlayer1:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListPlayer, Y 
+    STA jumppointer
+    LDA MetaSpriteListPlayer+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawPlayer2:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListPlayer2, Y 
+    STA jumppointer
+    LDA MetaSpriteListPlayer2+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawPlayer3:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListPlayer3, Y 
+    STA jumppointer
+    LDA MetaSpriteListPlayer3+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawPlayer4:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListPlayer4, Y 
+    STA jumppointer
+    LDA MetaSpriteListPlayer4+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawSlider:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListSlider, Y 
+    STA jumppointer
+    LDA MetaSpriteListSlider+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawProjectileSpell:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListProjectileSpell, Y 
+    STA jumppointer
+    LDA MetaSpriteListProjectileSpell+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
 
 ;;;;;;;;;;;;
 ;;;; TILE HANDLING
@@ -1863,6 +2079,130 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
     .byte %00110010, %01011010, %01010000, %01011010, %01011010, %01010000, %01011010, %10001000
     .byte %00101010, %00000000, %10101010, %00000000, %00000000, %10101010, %00000000, %10001010
 
+;;;;;;;;;;;;
+;;; LOOK UP TABLES
+;;;;;;;;;;;
+
+ProcessEntityList: ; Jump table for processing entities
+    .word SkipEntity
+    .word ProcessPlayer
+    .word ProcessPlayer2
+    .word ProcessPlayer3
+    .word ProcessPlayer4
+    .word ProcessSlider
+    .word ProcessProjectileSpell
+
+DrawSpriteList: ; this is a list of sprite definitions
+    .word SkipDraw
+    .word DrawPlayer1
+    .word DrawPlayer2
+    .word DrawPlayer3
+    .word DrawPlayer4
+    .word DrawSlider
+    .word DrawProjectileSpell
+
+
+MetaSpriteListPlayer:
+    .word PlayerSprite1
+    .word PlayerSprite2
+    .word PlayerSprite3
+    .word PlayerSprite4
+    .word PlayerSprite5
+    .word PlayerSprite6
+    .word PlayerSprite7
+
+MetaSpriteListPlayer2:
+    .word PlayerSprite1
+    .word PlayerSprite2
+    .word PlayerSprite3
+    .word PlayerSprite4
+    .word PlayerSprite5
+    .word PlayerSprite6
+    .word PlayerSprite7
+
+MetaSpriteListPlayer3:
+    .word PlayerSprite1
+    .word PlayerSprite2
+    .word PlayerSprite3
+    .word PlayerSprite4
+    .word PlayerSprite5
+    .word PlayerSprite6
+    .word PlayerSprite7
+
+MetaSpriteListPlayer4:
+    .word PlayerSprite1
+    .word PlayerSprite2
+    .word PlayerSprite3
+    .word PlayerSprite4
+    .word PlayerSprite5
+    .word PlayerSprite6
+    .word PlayerSprite7
+ 
+MetaSpriteListSlider:
+    .word MetaSpriteSlider1
+    .word MetaSpriteSlider2
+
+
+MetaSpriteListProjectileSpell:
+    .word ProjectileSpellSprite1
+    .word ProjectileSpellSprite2
+    .word ProjectileSpellSprite3
+    .word ProjectileSpellSprite4
+    .word ProjectileSpellSprite5
+    .word ProjectileSpellSprite6
+
+PlayerSprite1:
+    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
+PlayerSprite2:
+    .byte $00,$01,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSprite3:
+    .byte $00,$02,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSprite4:
+    .byte $00,$03,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSprite5:
+    .byte $00,$04,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSprite6:
+    .byte $00,$05,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSprite7:
+    .byte $00,$06,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+NoDraw:
+    .byte $FF ; termination byte
+MetaSpriteSlider1:
+    .byte $00,$01,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+MetaSpriteSlider2:
+    .byte $00,$02,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+ProjectileSpellSprite1:
+    .byte $00,$10,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
+ProjectileSpellSprite2:
+    .byte $00,$11,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite3:
+    .byte $00,$12,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite4:
+    .byte $00,$13,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite5:
+    .byte $00,$14,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite6:
+    .byte $00,$15,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+JumpStrength:
+    .byte $10,$10,$10,$10,$10,$10,$00
 
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 
     .word NMI           ; If you look at someone elses stuff they probably call this vblank or something

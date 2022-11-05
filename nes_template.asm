@@ -67,7 +67,7 @@
     nmidone: .res 1 ; value to check to see if the nmi is done
     scrollx: .res 1 ; how far the screen is scrolled in x dir
     scrolly: .res 1 ; how far the screen is scrolled in y dir
-    var_mem: .res 2 ; sometimes we need to jump to a subroutine and do something with more data than can be juggled with x/y/a
+    var_mem: .res 4 ; sometimes we need to jump to a subroutine and do something with more data than can be juggled with x/y/a
     buttons: .res 1 ; this holds the state of player input for controller 1
     buttons_p2: .res 2 ; this holds the state of player input for controller 1
     currenttable: .res 1
@@ -87,6 +87,9 @@
     temp: .res 1
     temp2: .res 1
     rng: .res 1 ; rng is stored here once a frame
+    rectangle1: .res 4 
+    rectangle2: .res 4
+
 
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
@@ -94,7 +97,9 @@
     CollisionMap = $0310 ; 0310 -> 0400 ; 240 byte collision map for tile collision
     CurrentBackgroundPalette = $04C0 ; -> 04CF
     SpawnerIndex = $04D0 ; -> 04D0 
-    SpawnerStack = $04D1 ; -> 04FD 3X15 
+    SpawnerStack = $04D1 ; -> 051D 3X15 bytes, x,y, entity
+    DestructionIndex = $051E ; -> 051E  
+    DestructionStack = $051F ; -> 0523 5 bytes  
     
     PPUControl = $2000 
     PPUMask= $2001 
@@ -335,8 +340,18 @@ LDX #$50
 LDA #EntityType::Player
 JSR SpawnEntity
 
-LDY #$30
-LDX #$10
+LDY #$B8
+LDX #$20
+LDA #EntityType::ProjectileSpell
+JSR SpawnEntity
+
+LDY #$88
+LDX #$20
+LDA #EntityType::ProjectileSpell
+JSR SpawnEntity
+
+LDY #$58
+LDX #$20
 LDA #EntityType::ProjectileSpell
 JSR SpawnEntity
 
@@ -414,6 +429,7 @@ Loop:
     ; LDA #EntityType::Slider
     ; JSR SpawnEntity
     JSR DoGameLogic
+    
     ; INC scrollx 
     JSR IncFrameCount   ; Counts to 59 then resets to 0
     JSR AlternateBanks
@@ -502,19 +518,76 @@ DoGameLogic:
     JSR ProcessSpawnStack
     JSR ReadButtons
     JSR ProcessEntities
+    JSR ProcessDestructionStack
+    LDY rng
+    LDX rng
+    LDA #EntityType::Slider
+    JSR SpawnEntity
+RTS
 
 ProcessSpawnStack:
     ; LDY SpawnerIndex
     ; BEQ EndProcessSpawnStack
-    ; LDA SpawnerStack, Y 
+    ; LDA SpawnerIndex, Y
+    ; PHA  
     ; DEC SpawnerIndex
-    ; LDX SpawnerIndex, Y 
+    ; LDA SpawnerIndex, Y
+    ; PHA  
     ; DEC SpawnerIndex
-    ; LDY SpawnerIndex, Y 
+    ; LDA SpawnerIndex, Y
+    ; PHA  
     ; DEC SpawnerIndex
+    ; PLA 
+    ; TAY
+    ; PLA 
+    ; TAX 
+    ; PLA
     ; JSR SpawnEntity
 
 EndProcessSpawnStack:
+    RTS 
+
+AddEntityToSpawnStack:
+    LDY SpawnerIndex
+    CPY MAXENTITIES
+    BNE :+
+    STA SpawnerStack, Y 
+    INC SpawnerIndex
+    TYA 
+    STA SpawnerStack, Y
+    INC SpawnerIndex
+    TXA 
+    STA SpawnerStack, Y
+    INC SpawnerIndex 
+    :
+    RTS 
+
+
+ProcessDestructionStack:
+    LDY DestructionIndex
+    BEQ EndProcessDestructionStack
+    
+    DestructionStackLoop:
+    LDX DestructionIndex, Y 
+    LDA #$00 
+    STA entities+Entity::type, X
+    STA entities+Entity::xpos, X
+    STA entities+Entity::ypos, X
+    STA entities+Entity::attributes, X
+    STA entities+Entity::palette, X
+    STA entities+Entity::generalpurpose, X
+    STA entities+Entity::animationframe, X
+    STA entities+Entity::animationtimer, X
+    DEC DestructionIndex
+    JMP ProcessDestructionStack
+
+AddEntityToDestructionStack:
+    LDY DestructionIndex
+    STA DestructionStack, Y 
+    INC DestructionIndex
+    RTS 
+
+EndProcessDestructionStack:
     RTS 
 
 ProcessEntities:
@@ -618,11 +691,6 @@ ProcessEntities:
     BEQ :+
     JMP ProcessEntitiesLoop
     :
-    DoneProcessingEntities:
-    NOP ; why are there nops here? 
-    NOP
-    NOP
-    NOP
 RTS
 
 PlayerStateMachine:
@@ -660,6 +728,9 @@ PlayerOnFloor:
         CLC 
         ADC entities+Entity::xpos,X
         STA entities+Entity::xpos,X
+        LDA #%01000000
+        EOR entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
     :
     JSR CheckLeft
     BEQ :+
@@ -667,13 +738,20 @@ PlayerOnFloor:
         CLC 
         ADC entities+Entity::xpos,X
         STA entities+Entity::xpos, X
+        LDA #%01000000
+        EOR entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+
     :
+    JSR CheckRight
     JMP EntityComplete 
 PlayerJumping:
 
 
     JMP EntityComplete
 PlayerFalling:
+    LDA #$00 
+    STA entities+Entity::animationframe, X
     JSR CheckRight
     BEQ :+
         LDA #$01
@@ -711,71 +789,75 @@ PlayerFalling:
 ProjectileSpellMovingLeft:
     JSR CollideLeft
     BEQ :+
-    LDA #$02
-    STA entities+Entity::generalpurpose, X
-    LDA #$03
-    STA entities+Entity::animationframe, X
-    LDA #$10
-    STA entities+Entity::animationtimer, X
-    JMP EntityComplete
-    :
-    DEC entities+Entity::animationtimer, X
-    LDA entities+Entity::animationtimer, X
-    BNE :+
-    LDA #$0A
-    STA entities+Entity::animationtimer, X
-    INC entities+Entity::animationframe, X
-    LDA entities+Entity::animationframe, X
-    CMP #$03
-    BNE :+
-    LDA #$00 
-    STA entities+Entity::animationframe, X
-    :
+    ; LDA #$02
+    ; STA entities+Entity::generalpurpose, X
+    ; LDA #$03
+    ; STA entities+Entity::animationframe, X
+    ; LDA #$10
+    ; STA entities+Entity::animationtimer, X
+    ; JMP EntityComplete
+    ; :
+    ; DEC entities+Entity::animationtimer, X
+    ; LDA entities+Entity::animationtimer, X
+    ; BNE :+
+    ; LDA #$0A
+    ; STA entities+Entity::animationtimer, X
+    ; INC entities+Entity::animationframe, X
+    ; LDA entities+Entity::animationframe, X
+    ; CMP #$03
+    ; BNE :+
+    ; LDA #$00 
+    ; STA entities+Entity::animationframe, X
+    ; :
     LDA entities+Entity::xpos, X 
     SEC 
     SBC #$01
     STA entities+Entity::xpos, X
     JMP EntityComplete
 ProjectileSpellMovingRight:
-    JSR CollideRight
-    BNE :+
-    LDA #$02
-    STA entities+Entity::generalpurpose, X 
-    JMP EntityComplete
-    :
-    DEC entities+Entity::animationtimer
-    LDA entities+Entity::animationtimer
-    BNE :+
-    LDA #$10
-    STA entities+Entity::animationtimer
-    INC entities+Entity::animationframe
-    LDA entities+Entity::animationframe
-    CMP #$03
-    BNE :+
-    LDA #$00 
-    STA entities+Entity::animationframe
+    JSR SpriteCollide 
+    BEQ :+
+    ; If !0, we hit another sprite
+    JSR AddEntityToDestructionStack
+    ; JSR CollideRight
+    ; BEQ :+
+    ; LDA #$02
+    ; STA entities+Entity::generalpurpose, X 
+    ; JMP EntityComplete
+    ; :
+    ; DEC entities+Entity::animationtimer
+    ; LDA entities+Entity::animationtimer
+    ; BNE :+
+    ; LDA #$10
+    ; STA entities+Entity::animationtimer
+    ; INC entities+Entity::animationframe
+    ; LDA entities+Entity::animationframe
+    ; CMP #$03
+    ; BNE :+
+    ; LDA #$00 
+    ; STA entities+Entity::animationframe
     :
     LDA entities+Entity::xpos, X 
     CLC  
     ADC #$01
     STA entities+Entity::xpos, X
+    LDA entities+Entity::xpos, X
+    CMP #$FE 
+    BCC :+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$04
+    STA entities+Entity::ypos, X
+    :
+    
     JMP EntityComplete
 ProjectileSpellDissipating:
     INC entities+Entity::animationframe, X
     LDA entities+Entity::animationframe, X
     CMP #$06
     BNE :+
-    ; INC entities+Entity::xpos, X
-    ; DEC entities+Entity::animationtimer, X
-    ; LDA entities+Entity::animationtimer, X 
-    ; BNE :+
-    ; LDA #$10
-    ; STA entities+Entity::animationtimer
-    ; INC entities+Entity::animationframe, X 
-    ; LDA entities+Entity::animationframe, X
-    ; CMP #$07
-    ; BNE :+
-    JMP ClearEntity
+    TXA
+    JSR AddEntityToDestructionStack
     :
     JMP EntityComplete
 
@@ -998,9 +1080,9 @@ SpawnEntity:
         STA entities+Entity::animationtimer
         RTS 
 EndEurydiceSpawn:
-    PHA 
-    PHA 
-    PHA
+    PLA 
+    PLA 
+    PLA
     RTS
 
 IncFrameCount:
@@ -1525,15 +1607,73 @@ CollideUp:
     ORA temp2
     RTS 
 
-CheckCollisionResult:
-    BEQ Hit 
-    Miss:
-        LDA #$00
-        RTS 
-    Hit:
-        LDA #$01 
-        RTS 
+SpriteCollide: 
+    LDA entities+Entity::xpos, X
+    STA rectangle1
+    CLC 
+    ADC #$07
+    STA rectangle1+1
+    LDA entities+Entity::ypos, X
+    STA rectangle1+2 
+    CLC 
+    ADC #$07
+    STA rectangle1+3
+    TXA 
+    PHA 
+    STA temp 
+    LDX #$00
 
+    SpriteCollideLoop:
+    CPX temp 
+    BEQ CollideSpriteComplete
+    LDA entities+Entity::type, X 
+    BEQ CollideSpriteComplete
+
+    LDA entities+Entity::xpos, X
+    STA rectangle2
+    CLC 
+    ADC #$07
+    STA rectangle2+1
+    LDA entities+Entity::ypos, X
+    STA rectangle2+2 
+    CLC 
+    ADC #$07
+    STA rectangle2+3 
+
+    LDA rectangle1
+    CMP rectangle2+1
+    BCS CollideSpriteComplete
+    LDA rectangle1+1 
+    CMP rectangle2
+    BCC CollideSpriteComplete
+    LDA rectangle1+2
+    CMP rectangle2+3 
+    BCS CollideSpriteComplete
+    LDA rectangle1+3 
+    CMP rectangle2+2 
+    BCC CollideSpriteComplete
+    TXA ; X = the entity we have successfuly collided
+    TAY  ; y = ditto
+    PLA  ; pull X (the current entiy being processed)
+    TAX  ; put it back in x ready to go back to the entity process loop
+    TYA         
+    RTS ; return with the collided object ID in A
+
+    CollideSpriteComplete:
+    TXA 
+    CLC 
+    ADC #.sizeof(Entity)
+    TAX 
+    CMP #entity_mem
+    BEQ :+
+    JMP SpriteCollideLoop
+    : 
+
+EndSpriteCollide:
+    PLA 
+    TAX 
+    LDA #$00
+    RTS
 
 NMI:            ; this happens once a frame when the draw arm mabob is returning to the top of the screen
     JMP MAINLOOP

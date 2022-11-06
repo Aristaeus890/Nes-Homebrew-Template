@@ -19,6 +19,33 @@
 .byte "<"
 .byte "3Matt" ; filler bytes to fill out the end of the header
 
+; FamiStudio config.
+FAMISTUDIO_CFG_EXTERNAL       = 1
+FAMISTUDIO_CFG_DPCM_SUPPORT   = 1
+FAMISTUDIO_CFG_SFX_SUPPORT    = 1 
+FAMISTUDIO_CFG_SFX_STREAMS    = 2
+FAMISTUDIO_CFG_EQUALIZER      = 1
+FAMISTUDIO_USE_VOLUME_TRACK   = 1
+FAMISTUDIO_USE_PITCH_TRACK    = 1
+FAMISTUDIO_USE_SLIDE_NOTES    = 1
+FAMISTUDIO_USE_VIBRATO        = 1
+FAMISTUDIO_USE_ARPEGGIO       = 1
+FAMISTUDIO_CFG_SMOOTH_VIBRATO = 1
+FAMISTUDIO_USE_RELEASE_NOTES  = 1
+FAMISTUDIO_DPCM_OFF           = $e000
+
+; NESASM-specific config.
+FAMISTUDIO_NESASM_ZP_RSSET  = $00b4
+FAMISTUDIO_NESASM_BSS_RSSET = $300
+FAMISTUDIO_NESASM_CODE_BANK = 0
+FAMISTUDIO_NESASM_CODE_ORG  = $8000
+
+.define FAMISTUDIO_CA65_ZP_SEGMENT ZEROPAGE
+.define FAMISTUDIO_CA65_RAM_SEGMENT BSS
+.define FAMISTUDIO_CA65_CODE_SEGMENT CODE
+
+; .include "famistudio_ca65.s"
+
 .scope EntityType ; NB this should match the order in the process entity list in order for the jump table to hit the right address
     NoEntity = 0
     Player = 1
@@ -90,7 +117,6 @@
     rectangle1: .res 4 
     rectangle2: .res 4
 
-
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
     TileBufferH = $0300 ; $0300 -> 030F ; Tiles that need to be written when the screen has scrolled are stored here
@@ -110,6 +136,11 @@
     PPUScroll = $2006
     PPUData = $2007 
     OAMDMA = $4014
+
+
+.segment "RAM"
+
+
 
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
@@ -139,6 +170,7 @@
         TXA
 
 .segment "CODE" ; the bulk of code will  be placed here. This will begin running from the start once startup has finished
+
 
 ;; This clears out the memory when we start up
 CLEARMEM:
@@ -355,65 +387,65 @@ LDX #$20
 LDA #EntityType::ProjectileSpell
 JSR SpawnEntity
 
-LDY #$00
-LDX #$10
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$10
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$60
-LDX #$20
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$60
+; LDX #$20
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$40
-LDX #$30
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$40
+; LDX #$30
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$40
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$40
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$50
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$50
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$60
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$60
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$70
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$70
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$80
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$80
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$90
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$90
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$A0
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$A0
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$0B
-LDX #$B0
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$0B
+; LDX #$B0
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$0A
-LDX #$C0
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$0A
+; LDX #$C0
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
     ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -630,7 +662,6 @@ ProcessEntities:
         LDA #$0A 
         STA entities+ Entity::animationtimer, X
         :
-        JSR ApplyGravity
         LDA entities+Entity::generalpurpose, X 
         BEQ MoveR
         MoveL:
@@ -642,14 +673,11 @@ ProcessEntities:
             CLC 
             ADC #$FF 
             STA entities+Entity::xpos, X 
-            JMP EntityComplete
+            JMP SliderLRComplete
             :
             LDA #$00
             STA entities+Entity::generalpurpose, X
 
-        JSR CollideRight
-        BNE :+
-        :
         JMP EntityComplete
         MoveR:
             LDA #%00000000
@@ -660,13 +688,18 @@ ProcessEntities:
             CLC 
             ADC #$01 
             STA entities+Entity::xpos, X 
-            JMP EntityComplete
+            JMP SliderLRComplete
             :
             LDA #$01
             STA entities+Entity::generalpurpose, X
 
-        JSR CollideRight
+        SliderLRComplete:
+        JSR CollideDown
         BNE :+
+        LDA entities+Entity::ypos, X 
+        CLC 
+        ADC #$02 
+        STA entities+Entity::ypos, X 
         :
         JMP EntityComplete
 
@@ -741,13 +774,49 @@ PlayerOnFloor:
         LDA #%01000000
         EOR entities+Entity::attributes, X 
         STA entities+Entity::attributes, X
-
     :
-    JSR CheckRight
+    JSR CheckA
+    BEQ :+
+    LDA #$01
+    STA playerstate
+    LDA #$FE
+    STA vyhigh
+    LDA #$00
+    STA vylow
+    STA entities+Entity::generalpurpose, X
+    LDA #$04
+    STA entities+Entity::animationframe, X
+    :
     JMP EntityComplete 
 PlayerJumping:
-
-
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    JSR CheckRight
+    BEQ :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+    :
+    JSR CheckLeft
+    BEQ :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+    :
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrength, Y 
+    CMP #$01 ; iF 01 we've reached the end of the dataset
+    BNE :+
+    LDA #$02 
+    STA playerstate 
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X 
+    STA entities+Entity::ypos, X
+    INC entities+Entity::generalpurpose, X 
     JMP EntityComplete
 PlayerFalling:
     LDA #$00 
@@ -779,6 +848,10 @@ PlayerFalling:
     STA vylow
     LDA vyhigh
     ADC $00
+    CMP #$02
+    BCC :+
+    LDA #$02 
+    :
     STA vyhigh
     CLC 
     ADC entities+Entity::ypos, X
@@ -1163,7 +1236,7 @@ ReadButtons:
         BCC ButtonLoopP2
 RTS
 
-CheckButtons:
+
 CheckA:
     LDA buttons 
     AND #%10000000 ; if the first nibble is set then a is pressed
@@ -2342,7 +2415,7 @@ ProjectileSpellSprite6:
     .byte $FF ; termination byte
 
 JumpStrength:
-    .byte $10,$10,$10,$10,$10,$10,$00
+    .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$00,$00,$00,$01
 
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 
     .word NMI           ; If you look at someone elses stuff they probably call this vblank or something

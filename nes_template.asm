@@ -54,6 +54,7 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     Player4 = 4
     Slider = 5
     ProjectileSpell = 6
+    Explosion = 7
 
 .endscope
 
@@ -107,9 +108,17 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     oambufferoffset: .res 1
     vxhigh: .res 1
     vxlow: .res 1
+    playerstate: .res 1
     vyhigh: .res 1
     vylow: .res 1
-    playerstate: .res 1
+    playerstateP2: .res 1
+    vxlowp2: .res 1
+    vyhighP3: .res 1
+    vylowP3: .res 1
+    playerstateP3: .res 1
+    vyhighP4: .res 1
+    vylowP4: .res 1
+    playerstateP4: .res 1
     spritebufferposition: .res 1
     temp: .res 1
     temp2: .res 1
@@ -137,6 +146,10 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     PPUData = $2007 
     OAMDMA = $4014
 
+    player1spawnx =20
+    player1spawny =20
+    player2spawnx =235
+    player2spawny =20
 
 .segment "RAM"
 
@@ -367,9 +380,24 @@ STA $A000
     JSR LoadSingleScreen
 
 
-LDY #$50
-LDX #$50
+LDY #$18
+LDX #$20
 LDA #EntityType::Player
+JSR SpawnEntity
+
+LDY #$18
+LDX #$30
+LDA #EntityType::Player2
+JSR SpawnEntity
+
+LDY #$18
+LDX #$40
+LDA #EntityType::Player3
+JSR SpawnEntity
+
+LDY #$18
+LDX #$50
+LDA #EntityType::Player4
 JSR SpawnEntity
 
 LDY #$B8
@@ -382,45 +410,45 @@ LDX #$20
 LDA #EntityType::ProjectileSpell
 JSR SpawnEntity
 
-LDY #$58
-LDX #$20
-LDA #EntityType::ProjectileSpell
+LDY #$50
+LDX #$30
+LDA #EntityType::Explosion
 JSR SpawnEntity
 
-; LDY #$00
-; LDX #$10
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$10
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$60
-; LDX #$20
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$60
+LDX #$20
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$40
-; LDX #$30
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$40
+LDX #$30
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$00
-; LDX #$40
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$40
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$00
-; LDX #$50
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$50
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$00
-; LDX #$60
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$60
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$00
-; LDX #$70
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$70
+LDA #EntityType::Slider
+JSR SpawnEntity
 
 ; LDY #$00
 ; LDX #$80
@@ -551,10 +579,6 @@ DoGameLogic:
     JSR ReadButtons
     JSR ProcessEntities
     JSR ProcessDestructionStack
-    LDY rng
-    LDX rng
-    LDA #EntityType::Slider
-    JSR SpawnEntity
 RTS
 
 ProcessSpawnStack:
@@ -596,30 +620,46 @@ AddEntityToSpawnStack:
 
 
 ProcessDestructionStack:
-    LDY DestructionIndex
-    BEQ EndProcessDestructionStack
+    LDY DestructionIndex ; index for the stack
+    BEQ EndProcessDestructionStack; if 0, stack is empty
     
     DestructionStackLoop:
-    LDX DestructionIndex, Y 
+    LDX DestructionIndex, Y ; load the entity number 
+    LDA entities+Entity::type, X ; store the type for jump later
+    PHA
+    STA temp
+    LDA entities+Entity::ypos, X 
+    PHA 
+    LDA entities+Entity::xpos, X 
+    PHA 
     LDA #$00 
-    STA entities+Entity::type, X
-    STA entities+Entity::xpos, X
+    STA entities+Entity::type, X ;clear that entity type
+    STA entities+Entity::xpos, X 
     STA entities+Entity::ypos, X
     STA entities+Entity::attributes, X
-    STA entities+Entity::palette, X
     STA entities+Entity::generalpurpose, X
     STA entities+Entity::animationframe, X
+    LDA #$05
     STA entities+Entity::animationtimer, X
-    DEC DestructionIndex
-    JMP ProcessDestructionStack
+    DEC DestructionIndex ; dec the stack
+    ; JMP ProcessDestructionStack
+    LDA temp 
+    ASL 
+    TAX
+    LDA DestroyEntityList, X 
+    STA jumppointer
+    LDA DestroyEntityList+1, X 
+    STA jumppointer+1
+    JMP (jumppointer) 
+; jump away to creating a death effect for whatever we destroyed
+
+    EndProcessDestructionStack:
+        RTS 
 
 AddEntityToDestructionStack:
     LDY DestructionIndex
     STA DestructionStack, Y 
     INC DestructionIndex
-    RTS 
-
-EndProcessDestructionStack:
     RTS 
 
 ProcessEntities:
@@ -647,11 +687,33 @@ ProcessEntities:
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer2:
-        JMP EntityComplete
+        LDA playerstateP2
+        ASL 
+        TAY 
+        LDA PlayerStateMachine, Y
+        STA jumppointer
+        LDA PlayerStateMachine+1, Y
+        STA jumppointer+1
+        JMP (jumppointer)
     ProcessPlayer3:
-        JMP EntityComplete
+        LDA playerstateP3
+        ASL 
+        TAY 
+        LDA PlayerStateMachine, Y
+        STA jumppointer
+        LDA PlayerStateMachine+1, Y
+        STA jumppointer+1
+        JMP (jumppointer)
     ProcessPlayer4:
-        JMP EntityComplete
+
+        LDA playerstateP4
+        ASL 
+        TAY 
+        LDA PlayerStateMachine, Y
+        STA jumppointer
+        LDA PlayerStateMachine+1, Y
+        STA jumppointer+1
+        JMP (jumppointer)
     ProcessSlider:
         DEC entities+Entity::animationtimer, X 
         LDA entities+ Entity::animationtimer, X
@@ -698,7 +760,7 @@ ProcessEntities:
         BNE :+
         LDA entities+Entity::ypos, X 
         CLC 
-        ADC #$02 
+        ADC #$01
         STA entities+Entity::ypos, X 
         :
         JMP EntityComplete
@@ -712,6 +774,22 @@ ProcessEntities:
         LDA ProjectileSpellStateMachine+1, Y 
         STA jumppointer+1 
         JMP (jumppointer)
+    
+    ProcessExplosion:
+        DEC entities+Entity::animationtimer, X
+        LDA entities+Entity::animationtimer, X
+        BNE :+
+        LDA #$05 
+        STA entities+Entity::animationtimer, X
+        INC entities+Entity::animationframe, X
+        LDA entities+Entity::animationframe, X
+        CMP #$04 
+        BNE :+
+        TXA 
+        JSR AddEntityToDestructionStack
+        :
+    JMP EntityComplete
+
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
     ; If we now process another entity, it will be offset by the size of the struct in X, giving us the address of the next entity
@@ -727,6 +805,7 @@ ProcessEntities:
 RTS
 
 PlayerStateMachine:
+    .word PlayerInit
     .word PlayerOnFloor
     .word PlayerJumping
     .word PlayerFalling
@@ -738,6 +817,41 @@ ProjectileSpellStateMachine:
 
 ; Entity Behaviours
 
+PlayerInit:
+    LDA entities+Entity::type
+    CMP #EntityType::Player
+    BNE :+ 
+    LDA #%00000000
+    STA entities+Entity::attributes, X 
+    LDA #$01 
+    STA playerstate
+    JMP EntityComplete
+    :
+    CMP #EntityType::Player2
+    BNE :+ 
+    LDA #%00000001
+    STA entities+Entity::attributes, X 
+    LDA #$01 
+    STA playerstate
+    JMP EntityComplete
+    :
+    CMP #EntityType::Player3
+    BNE :+ 
+    LDA #%00000010
+    STA entities+Entity::attributes, X 
+    LDA #$01 
+    STA playerstate
+    JMP EntityComplete
+    :
+    CMP #EntityType::Player4
+    BNE :+ 
+    LDA #%00000011
+    STA entities+Entity::attributes, X 
+    LDA #$01 
+    STA playerstate
+    JMP EntityComplete
+    :
+    JMP EntityComplete
 PlayerOnFloor:
     DEC entities+Entity::animationtimer, X
     LDA entities+Entity::animationtimer, X
@@ -750,7 +864,7 @@ PlayerOnFloor:
     : 
     JSR CollideDown
     BNE :+
-    LDA #$02 
+    LDA #$03 
     STA playerstate
     STA entities+Entity::animationframe
     JMP EntityComplete
@@ -777,7 +891,7 @@ PlayerOnFloor:
     :
     JSR CheckA
     BEQ :+
-    LDA #$01
+    LDA #$02
     STA playerstate
     LDA #$FE
     STA vyhigh
@@ -789,6 +903,7 @@ PlayerOnFloor:
     :
     JMP EntityComplete 
 PlayerJumping:
+    JSR  CheckA
     LDA #$01
     STA entities+Entity::animationframe, X
     JSR CheckRight
@@ -809,7 +924,7 @@ PlayerJumping:
     LDA JumpStrength, Y 
     CMP #$01 ; iF 01 we've reached the end of the dataset
     BNE :+
-    LDA #$02 
+    LDA #$03 
     STA playerstate 
     JMP EntityComplete
     :
@@ -837,7 +952,7 @@ PlayerFalling:
     :
     JSR CollideDown
     BEQ :+
-        LDA #$00 
+        LDA #$01 
         STA playerstate
         STA entities+Entity::animationframe
         JMP EntityComplete
@@ -892,6 +1007,9 @@ ProjectileSpellMovingRight:
     BEQ :+
     ; If !0, we hit another sprite
     JSR AddEntityToDestructionStack
+    TXA 
+    JSR AddEntityToDestructionStack
+
     ; JSR CollideRight
     ; BEQ :+
     ; LDA #$02
@@ -1146,10 +1264,8 @@ SpawnEntity:
         STA entities+Entity::xpos, X
         PLA 
         STA entities+Entity::type, X
-        JSR Prng
-        AND #%00000001
-        STA entities+Entity::generalpurpose, X
-        LDA #$01 
+        LDA #$01
+        STA entities+Entity::generalpurpose, X 
         STA entities+Entity::animationtimer
         RTS 
 EndEurydiceSpawn:
@@ -1534,7 +1650,28 @@ CollideLeft:
     ADC temp
     TAY 
     LDA CollisionMap, Y 
-    RTS
+    STA temp2 
+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$07
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    CLC 
+    ADC temp 
+    TAY 
+    LDA CollisionMap, Y 
+    ORA temp2
+
+    RTS 
 
 CollideRight: ; only to be called dfrom process entities
     LDA entities+Entity::xpos, X
@@ -1562,6 +1699,27 @@ CollideRight: ; only to be called dfrom process entities
     ADC temp
     TAY 
     LDA CollisionMap, Y 
+    STA temp2 
+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$07
+    LSR 
+    LSR 
+    LSR 
+    LSR 
+
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    CLC 
+    ADC temp 
+    TAY 
+    LDA CollisionMap, Y 
+    ORA temp2
+
     RTS 
 
 CollideDown:
@@ -1965,8 +2123,75 @@ DrawProjectileSpell:
     :
     JMP DrawSpriteInit
 
+DrawExplosion:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListExplosion, Y 
+    STA jumppointer
+    LDA MetaSpriteListExplosion+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
 
-;;;;;;;;;;;;
+;;;;;;;;
+;; DEATH FUNCTIONS
+;; These are all called from ProcessDestructionStack and MUST return there when they finish
+;;;;;;;';'
+
+NoDeathAction:
+    PLA 
+    PLA 
+    PLA
+    JMP ProcessDestructionStack
+RespawnPlayer:
+    PLA 
+    PLA 
+    PLA
+
+    JMP ProcessDestructionStack
+DeathExplosion:
+    PLA 
+    TAX
+    PLA
+    TAY 
+    PLA
+    LDA #EntityType::Explosion
+    JSR SpawnEntity
+    JMP ProcessDestructionStack
+RespawnSelf:
+    PLA 
+    PLA 
+    PLA
+    LDY rng
+    LDX rng
+    LDA temp
+    JSR SpawnEntity
+    JMP ProcessDestructionStack
+ExplodeAndRespawn:
+; this spawns first, if entity limit is reached no death effect
+    LDY rng
+    LDX rng
+    LDA temp
+    JSR SpawnEntity
+    ; JMP ProcessDestructionStack
+    PLA 
+    TAX 
+    PLA 
+    TAY 
+    PLA
+    ; JMP ProcessDestructionStack
+    LDA #EntityType::Explosion
+    JSR SpawnEntity
+    JMP ProcessDestructionStack
+
+
+;;;;;;;;;;;;H
+
 ;;;; TILE HANDLING
 ;;;;;;;;;;;;
 
@@ -2245,7 +2470,7 @@ MetaTileList:
 
 PaletteData:
     .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$16,$07,$27, $0F,$05,$15,$30  ;background palette data  
-    .byte $0F,$05,$15,$30,  $0F,$09,$1C,$0C,  $0F,$2C,$30,$27, $0F,$0F,$36,$17  ;sprite palette data
+    .byte $0F,$17,$27,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
 
 ScreenDefault: ; the  format of a screen is that each byte represents 1 meta tile, made up of 4 8x8 pixel blocks to save huge
 ; amounts ofbytes in the long run
@@ -2296,6 +2521,17 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
 ;;; LOOK UP TABLES
 ;;;;;;;;;;;
 
+DestroyEntityList: ; defines behaviours for when an entity is destroyed
+    .word NoDeathAction
+    .word RespawnPlayer
+    .word RespawnPlayer 
+    .word RespawnPlayer 
+    .word RespawnPlayer
+    .word DeathExplosion
+    .word NoDeathAction
+    .word NoDeathAction
+
+
 ProcessEntityList: ; Jump table for processing entities
     .word SkipEntity
     .word ProcessPlayer
@@ -2304,6 +2540,7 @@ ProcessEntityList: ; Jump table for processing entities
     .word ProcessPlayer4
     .word ProcessSlider
     .word ProcessProjectileSpell
+    .word ProcessExplosion
 
 DrawSpriteList: ; this is a list of sprite definitions
     .word SkipDraw
@@ -2313,6 +2550,7 @@ DrawSpriteList: ; this is a list of sprite definitions
     .word DrawPlayer4
     .word DrawSlider
     .word DrawProjectileSpell
+    .word DrawExplosion
 
 
 MetaSpriteListPlayer:
@@ -2325,31 +2563,31 @@ MetaSpriteListPlayer:
     .word PlayerSprite7
 
 MetaSpriteListPlayer2:
-    .word PlayerSprite1
-    .word PlayerSprite2
-    .word PlayerSprite3
-    .word PlayerSprite4
-    .word PlayerSprite5
-    .word PlayerSprite6
-    .word PlayerSprite7
+    .word Player2Sprite1
+    .word Player2Sprite2
+    .word Player2Sprite3
+    .word Player2Sprite4
+    .word Player2Sprite5
+    .word Player2Sprite6
+    .word Player2Sprite7
 
 MetaSpriteListPlayer3:
-    .word PlayerSprite1
-    .word PlayerSprite2
-    .word PlayerSprite3
-    .word PlayerSprite4
-    .word PlayerSprite5
-    .word PlayerSprite6
-    .word PlayerSprite7
+    .word Player3Sprite1
+    .word Player3Sprite2
+    .word Player3Sprite3
+    .word Player3Sprite4
+    .word Player3Sprite5
+    .word Player3Sprite6
+    .word Player3Sprite7
 
 MetaSpriteListPlayer4:
-    .word PlayerSprite1
-    .word PlayerSprite2
-    .word PlayerSprite3
-    .word PlayerSprite4
-    .word PlayerSprite5
-    .word PlayerSprite6
-    .word PlayerSprite7
+    .word Player4Sprite1
+    .word Player4Sprite2
+    .word Player4Sprite3
+    .word Player4Sprite4
+    .word Player4Sprite5
+    .word Player4Sprite6
+    .word Player4Sprite7
  
 MetaSpriteListSlider:
     .word MetaSpriteSlider1
@@ -2363,6 +2601,12 @@ MetaSpriteListProjectileSpell:
     .word ProjectileSpellSprite4
     .word ProjectileSpellSprite5
     .word ProjectileSpellSprite6
+
+MetaSpriteListExplosion:
+    .word ExplosionSprite1
+    .word ExplosionSprite2
+    .word ExplosionSprite3
+    .word ExplosionSprite4
 
 PlayerSprite1:
     .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
@@ -2384,6 +2628,72 @@ PlayerSprite6:
     .byte $FF ; termination byte
 PlayerSprite7:
     .byte $00,$06,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+Player2Sprite1:
+    .byte $00,$00,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
+Player2Sprite2:
+    .byte $00,$01,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player2Sprite3:
+    .byte $00,$02,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player2Sprite4:
+    .byte $00,$03,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player2Sprite5:
+    .byte $00,$04,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player2Sprite6:
+    .byte $00,$05,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player2Sprite7:
+    .byte $00,$06,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+Player3Sprite1:
+    .byte $00,$00,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
+Player3Sprite2:
+    .byte $00,$01,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player3Sprite3:
+    .byte $00,$02,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player3Sprite4:
+    .byte $00,$03,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player3Sprite5:
+    .byte $00,$04,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player3Sprite6:
+    .byte $00,$05,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player3Sprite7:
+    .byte $00,$06,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+Player4Sprite1:
+    .byte $00,$00,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte 
+Player4Sprite2:
+    .byte $00,$01,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player4Sprite3:
+    .byte $00,$02,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player4Sprite4:
+    .byte $00,$03,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player4Sprite5:
+    .byte $00,$04,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player4Sprite6:
+    .byte $00,$05,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+Player4Sprite7:
+    .byte $00,$06,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 
 NoDraw:
@@ -2413,6 +2723,21 @@ ProjectileSpellSprite5:
 ProjectileSpellSprite6:
     .byte $00,$15,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
+
+ExplosionSprite1: 
+    .byte $00,$41,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ExplosionSprite2: 
+    .byte $00,$42,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ExplosionSprite3: 
+    .byte $00,$43,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ExplosionSprite4: 
+    .byte $00,$44,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+
 
 JumpStrength:
     .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$00,$00,$00,$01

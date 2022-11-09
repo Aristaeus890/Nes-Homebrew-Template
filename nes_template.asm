@@ -55,7 +55,17 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     Slider = 5
     ProjectileSpell = 6
     Explosion = 7
+    LightningEmitter = 8 
+    Sparks = 9 
+    Lightning = 10
+.endscope
 
+.scope CollisionType
+    NoCollision = 0 
+    LayerOne = 1
+    LayerTwo = 1
+    LayerThree = 1
+    LayerFour = 1
 .endscope
 
 .scope PlayerState
@@ -75,7 +85,7 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     xpos .byte ; x position
     ypos .byte ; y position
     attributes .byte ;
-    palette .byte ; which of the 4 active palettes this sprite should use
+    collisionlayer .byte ; which of the 4 active palettes this sprite should use
     generalpurpose .byte ; this has no specific use, it can be defined on a per entity basis
     animationframe .byte
     animationtimer .byte
@@ -128,7 +138,7 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
 
     ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
     SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
-    TileBufferH = $0300 ; $0300 -> 030F ; Tiles that need to be written when the screen has scrolled are stored here
+    TileBufferH = $0300 ; $0300 ->  ; Tiles that need to be written when the screen has scrolled are stored here
     CollisionMap = $0310 ; 0310 -> 0400 ; 240 byte collision map for tile collision
     CurrentBackgroundPalette = $04C0 ; -> 04CF
     SpawnerIndex = $04D0 ; -> 04D0 
@@ -380,43 +390,50 @@ STA $A000
     JSR LoadSingleScreen
 
 
+; LDY #$18
+; LDX #$20
+; LDA #EntityType::Player
+; JSR SpawnEntity
+
+; LDY #$18
+; LDX #$30
+; LDA #EntityType::Player2
+; JSR SpawnEntity
+
+; LDY #$18
+; LDX #$40
+; LDA #EntityType::Player3
+; JSR SpawnEntity
+
+; LDY #$18
+; LDX #$50
+; LDA #EntityType::Player4
+; JSR SpawnEntity
+
+
 LDY #$18
 LDX #$20
 LDA #EntityType::Player
 JSR SpawnEntity
 
-LDY #$18
-LDX #$30
-LDA #EntityType::Player2
+
+LDY #$b0
+LDX #$70
+LDA #EntityType::LightningEmitter
 JSR SpawnEntity
 
-LDY #$18
-LDX #$40
-LDA #EntityType::Player3
-JSR SpawnEntity
-
-LDY #$18
-LDX #$50
-LDA #EntityType::Player4
-JSR SpawnEntity
-
-LDY #$B8
-LDX #$20
-LDA #EntityType::ProjectileSpell
-JSR SpawnEntity
-
-LDY #$88
-LDX #$20
-LDA #EntityType::ProjectileSpell
-JSR SpawnEntity
+; LDY #$88
+; LDX #$20
+; LDA #EntityType::ProjectileSpell
+; JSR SpawnEntity
 
 LDY #$50
 LDX #$30
 LDA #EntityType::Explosion
 JSR SpawnEntity
 
-LDY #$00
-LDX #$10
+LDY #$80
+LDX #80
 LDA #EntityType::Slider
 JSR SpawnEntity
 
@@ -450,30 +467,30 @@ LDX #$70
 LDA #EntityType::Slider
 JSR SpawnEntity
 
-; LDY #$00
-; LDX #$80
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$80
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$00
-; LDX #$90
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$90
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$00
-; LDX #$A0
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$00
+LDX #$A0
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$0B
-; LDX #$B0
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$0B
+LDX #$B0
+LDA #EntityType::Slider
+JSR SpawnEntity
 
-; LDY #$0A
-; LDX #$C0
-; LDA #EntityType::Slider
-; JSR SpawnEntity
+LDY #$0A
+LDX #$C0
+LDA #EntityType::Slider
+JSR SpawnEntity
 
     ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -579,6 +596,7 @@ DoGameLogic:
     JSR ReadButtons
     JSR ProcessEntities
     JSR ProcessDestructionStack
+    
 RTS
 
 ProcessSpawnStack:
@@ -705,7 +723,6 @@ ProcessEntities:
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer4:
-
         LDA playerstateP4
         ASL 
         TAY 
@@ -715,55 +732,15 @@ ProcessEntities:
         STA jumppointer+1
         JMP (jumppointer)
     ProcessSlider:
-        DEC entities+Entity::animationtimer, X 
-        LDA entities+ Entity::animationtimer, X
-        BNE :+
-        LDA #$01
-        EOR entities+ Entity::animationframe, X
-        STA entities+ Entity::animationframe, X
-        LDA #$0A 
-        STA entities+ Entity::animationtimer, X
-        :
-        LDA entities+Entity::generalpurpose, X 
-        BEQ MoveR
-        MoveL:
-            LDA #%01000000
-            STA entities+Entity::attributes, X
-            JSR CollideLeft
-            BNE :+
-            LDA entities+Entity::xpos, X 
-            CLC 
-            ADC #$FF 
-            STA entities+Entity::xpos, X 
-            JMP SliderLRComplete
-            :
-            LDA #$00
-            STA entities+Entity::generalpurpose, X
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA SliderStateMachine, Y 
+        STA jumppointer
+        LDA SliderStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
 
-        JMP EntityComplete
-        MoveR:
-            LDA #%00000000
-            STA entities+Entity::attributes, X
-            JSR CollideRight
-            BNE :+
-            LDA entities+Entity::xpos, X 
-            CLC 
-            ADC #$01 
-            STA entities+Entity::xpos, X 
-            JMP SliderLRComplete
-            :
-            LDA #$01
-            STA entities+Entity::generalpurpose, X
-
-        SliderLRComplete:
-        JSR CollideDown
-        BNE :+
-        LDA entities+Entity::ypos, X 
-        CLC 
-        ADC #$01
-        STA entities+Entity::ypos, X 
-        :
-        JMP EntityComplete
 
     ProcessProjectileSpell:
         LDA entities+Entity::generalpurpose, X
@@ -776,19 +753,56 @@ ProcessEntities:
         JMP (jumppointer)
     
     ProcessExplosion:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA ExplosionStateMachine, Y 
+        STA jumppointer
+        LDA ExplosionStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
+
+    ProcessLightningEmitter:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA LightningEmitterStateMachine, Y 
+        STA jumppointer
+        LDA LightningEmitterStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
+
+    ProcessSparks:
+        ; TXA 
+        ; JSR AddEntityToDestructionStack
+
         DEC entities+Entity::animationtimer, X
         LDA entities+Entity::animationtimer, X
-        BNE :+
-        LDA #$05 
+        BPL :+
+        LDA #$02
         STA entities+Entity::animationtimer, X
-        INC entities+Entity::animationframe, X
-        LDA entities+Entity::animationframe, X
-        CMP #$04 
+        LDA #$01 
+        EOR entities+Entity::animationframe, X
+        STA entities+Entity::animationframe, X
+        INC entities+Entity::generalpurpose, X
+        LDA entities+Entity::generalpurpose, X
+        CMP #$05
         BNE :+
         TXA 
         JSR AddEntityToDestructionStack
         :
     JMP EntityComplete
+
+    ProcessLightning:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA LightningStateMachine, Y 
+        STA jumppointer
+        LDA LightningStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
+
 
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
@@ -815,6 +829,25 @@ ProjectileSpellStateMachine:
     .word ProjectileSpellMovingRight
     .word ProjectileSpellDissipating
 
+LightningEmitterStateMachine:
+    .word LightningEmitterInit
+    .word LightningEmitterWaitingForSparks  
+    .word LightningEmitterWaitingForLightning
+
+LightningStateMachine:
+    .word LightningInit
+    .word LightningExtending
+    .word LightningFlashing
+
+SliderStateMachine:
+    .word SliderInit
+    .word SliderRight
+    .word SliderLeft
+
+ExplosionStateMachine:
+    .word ExplosionInit
+    .word ExplosionExplode
+
 ; Entity Behaviours
 
 PlayerInit:
@@ -824,6 +857,8 @@ PlayerInit:
     LDA #%00000000
     STA entities+Entity::attributes, X 
     LDA #$01 
+
+    STA entities+Entity::collisionlayer, X 
     STA playerstate
     JMP EntityComplete
     :
@@ -1052,13 +1087,205 @@ ProjectileSpellDissipating:
     :
     JMP EntityComplete
 
+LightningEmitterInit:
+    LDA #%00000011 
+    STA entities+Entity::attributes, X 
+    LDA #$78
+    STA entities+Entity::animationtimer, X
+    LDA #$01 
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
+LightningEmitterWaitingForSparks: ; TODO rewrite following non branching path (1 cycle each)
+    DEC entities+Entity::animationtimer, X  
+    BNE :+
+    TXA 
+    PHA 
+    LDA #$02 
+    STA entities+Entity::generalpurpose, X 
+    LDA #$78
+    STA entities+Entity::animationtimer, X 
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$08
+    TAY 
+    LDA entities+Entity::xpos, X
+    TAX  
+    LDA #EntityType::Sparks
+    JSR SpawnEntity
+    PLA 
+    TAX 
+
+    :
+    JMP EntityComplete
+
+LightningEmitterWaitingForLightning:
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    TXA 
+    PHA 
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    LDA #$78
+    STA entities+Entity::animationtimer, X 
+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$08
+    TAY 
+    LDA entities+Entity::xpos, X
+    TAX
+    LDA #EntityType::Lightning
+    JSR SpawnEntity
+    PLA 
+    TAX 
+    :
+    JMP EntityComplete
+
+LightningInit:
+    LDA #%00000011 
+    STA entities+Entity::attributes, X 
+    LDA #$0A
+    STA entities+Entity::animationtimer, X
+    LDA #%00000001
+    STA entities+Entity::generalpurpose, X
+    STA entities+Entity::collisionlayer, X
+    LDA #$00
+    STA entities+Entity::animationframe, X  
+    JMP EntityComplete
+
+LightningExtending:
+    DEC entities+Entity::animationtimer, X
+    BMI :+ 
+    JMP EntityComplete
+    : 
+    INC entities+Entity::animationframe, X 
+    LDA entities+Entity::animationframe, x
+    CMP #$03 
+    BEQ :+
+    LDA #$04
+    STA entities+Entity::animationtimer, X 
+    JMP EntityComplete
+    :
+    LDA #$03 
+    STA entities+Entity::animationframe, X
+    STA entities+Entity::animationtimer, X
+    LDA #$02 
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
+LightningFlashing:
+    JSR SpriteCollide
+    BEQ :+
+    JSR AddEntityToDestructionStack
+    :
+    DEC entities+Entity::animationtimer, X
+    BPL EndLightningFlashing
+    LDA #$0A 
+    STA entities+Entity::animationtimer, X
+    INC entities+Entity::animationframe, X
+    LDA entities+Entity::animationframe, X
+    CMP #$06 
+    BNE EndLightningFlashing
+    TXA 
+    JSR AddEntityToDestructionStack
+EndLightningFlashing:
+    JMP EntityComplete
+
+SliderInit:
+    LDA #%00000001
+    STA entities+Entity::attributes, X 
+    LDA #$08
+    STA entities+Entity::animationtimer, X
+    LDA #$01 
+    LDA #%00000001
+    STA entities+Entity::collisionlayer, X 
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
+SliderRight: 
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    LDA #$01
+    EOR entities+ Entity::animationframe, X
+    STA entities+ Entity::animationframe, X
+    LDA #$0A 
+    STA entities+ Entity::animationtimer, X
+    :
+    JSR CollideRight
+    BEQ :+ 
+    LDA #$02
+    STA entities+Entity::generalpurpose, X
+    LDA entities+Entity::attributes, X
+    EOR #%01000000
+    STA entities+Entity::attributes, X 
+    JMP EntityComplete
+    :
+    INC entities+Entity::xpos, X 
+    JSR CollideDown
+    BNE :+
+    INC entities+Entity::ypos, X 
+    :
+    JMP EntityComplete
+SliderLeft:
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    LDA #$01
+    EOR entities+ Entity::animationframe, X
+    STA entities+ Entity::animationframe, X
+    LDA #$0A 
+    STA entities+ Entity::animationtimer, X
+    :
+    JSR CollideLeft
+    BEQ :+ 
+    LDA #$01
+    STA entities+Entity::generalpurpose, X
+    LDA entities+Entity::attributes, X
+    EOR #%01000000
+    STA entities+Entity::attributes, X 
+    JMP EntityComplete
+    :
+    DEC entities+Entity::xpos, X 
+    JSR CollideDown
+    BNE :+
+    INC entities+Entity::ypos, X 
+    :
+    JMP EntityComplete
+
+ExplosionInit:
+    LDA #%00000000
+    STA entities+Entity::attributes, X 
+    LDA #$08
+    STA entities+Entity::animationtimer, X
+    LDA #$01 
+    LDA #%00000000
+    STA entities+Entity::collisionlayer
+    LDA #$01 
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+ExplosionExplode:
+    DEC entities+Entity::animationtimer, X
+    LDA entities+Entity::animationtimer, X
+    BNE :+
+    LDA #$05 
+    STA entities+Entity::animationtimer, X
+    INC entities+Entity::animationframe, X
+    LDA entities+Entity::animationframe, X
+    CMP #$04 
+    BNE :+
+    TXA 
+    JSR AddEntityToDestructionStack
+    :
+    JMP EntityComplete
+
+
 ClearEntity:
     LDA #$00 
     STA entities+Entity::type, X
     STA entities+Entity::xpos, X
     STA entities+Entity::ypos, X
     STA entities+Entity::attributes, X
-    STA entities+Entity::palette, X
+    STA entities+Entity::collisionlayer, X
     STA entities+Entity::generalpurpose, X
     STA entities+Entity::animationframe, X
     STA entities+Entity::animationtimer, X
@@ -1264,9 +1491,10 @@ SpawnEntity:
         STA entities+Entity::xpos, X
         PLA 
         STA entities+Entity::type, X
-        LDA #$01
+        LDA #$00
         STA entities+Entity::generalpurpose, X 
-        STA entities+Entity::animationtimer
+        STA entities+Entity::animationtimer, X 
+        STA entities+Entity::collisionlayer, X 
         RTS 
 EndEurydiceSpawn:
     PLA 
@@ -1839,6 +2067,10 @@ CollideUp:
     RTS 
 
 SpriteCollide: 
+    ; first store your own collisionbit
+    LDA entities+Entity::collisionlayer, X
+    STA temp2 
+
     LDA entities+Entity::xpos, X
     STA rectangle1
     CLC 
@@ -1852,9 +2084,25 @@ SpriteCollide:
     TXA 
     PHA 
     STA temp 
+    ; compare collision bits
     LDX #$00
-
+    LDA temp2
+    BEQ CollideSpriteComplete
     SpriteCollideLoop:
+    LDA entities+Entity::collisionlayer, X
+    BEQ CollideSpriteComplete
+    EOR temp2
+    AND #%00000001
+    BEQ :+
+    AND #%00000010
+    BEQ :+
+    AND #%00000100
+    BEQ :+
+    AND #%00001000
+    BEQ :+
+    JMP CollideSpriteComplete
+    :
+
     CPX temp 
     BEQ CollideSpriteComplete
     LDA entities+Entity::type, X 
@@ -2130,6 +2378,51 @@ DrawExplosion:
     LDA MetaSpriteListExplosion, Y 
     STA jumppointer
     LDA MetaSpriteListExplosion+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawLightningEmitter:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListLightningEmitter, Y 
+    STA jumppointer
+    LDA MetaSpriteListLightningEmitter+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawLightning:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListLightning, Y 
+    STA jumppointer
+    LDA MetaSpriteListLightning+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawSparks:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListSparks, Y 
+    STA jumppointer
+    LDA MetaSpriteListSparks+1, Y
     STA jumppointer+1
     LDA (jumppointer), Y 
     CMP #$FF
@@ -2522,14 +2815,18 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
 ;;;;;;;;;;;
 
 DestroyEntityList: ; defines behaviours for when an entity is destroyed
-    .word NoDeathAction
-    .word RespawnPlayer
-    .word RespawnPlayer 
-    .word RespawnPlayer 
-    .word RespawnPlayer
-    .word DeathExplosion
-    .word NoDeathAction
-    .word NoDeathAction
+    .word NoDeathAction ; 0 
+    .word RespawnPlayer ; 1
+    .word RespawnPlayer ; 2
+    .word RespawnPlayer ; 3
+    .word RespawnPlayer ; 4
+    .word DeathExplosion ; 5
+    .word NoDeathAction ; 6
+    .word NoDeathAction ; 7
+    .word NoDeathAction ; 8
+    .word NoDeathAction ; 9
+    .word NoDeathAction ; 10
+    .word NoDeathAction ; 11
 
 
 ProcessEntityList: ; Jump table for processing entities
@@ -2541,6 +2838,9 @@ ProcessEntityList: ; Jump table for processing entities
     .word ProcessSlider
     .word ProcessProjectileSpell
     .word ProcessExplosion
+    .word ProcessLightningEmitter
+    .word ProcessSparks 
+    .word ProcessLightning 
 
 DrawSpriteList: ; this is a list of sprite definitions
     .word SkipDraw
@@ -2551,7 +2851,9 @@ DrawSpriteList: ; this is a list of sprite definitions
     .word DrawSlider
     .word DrawProjectileSpell
     .word DrawExplosion
-
+    .word DrawLightningEmitter 
+    .word DrawSparks
+    .word DrawLightning
 
 MetaSpriteListPlayer:
     .word PlayerSprite1
@@ -2607,6 +2909,22 @@ MetaSpriteListExplosion:
     .word ExplosionSprite2
     .word ExplosionSprite3
     .word ExplosionSprite4
+
+
+MetaSpriteListLightningEmitter:
+    .word LightningEmitterSprite1 
+
+MetaSpriteListSparks: 
+    .word SparksSprite1 
+    .word SparksSprite2
+
+MetaSpriteListLightning:
+    .word LightningSprite1
+    .word LightningSprite2
+    .word LightningSprite3
+    .word LightningSprite4
+    .word LightningSprite5
+    .word LightningSprite6
 
 PlayerSprite1:
     .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
@@ -2737,7 +3055,35 @@ ExplosionSprite4:
     .byte $00,$44,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 
+LightningEmitterSprite1:
+    .byte $00,$C4,$00,$00
+    .byte $FF
 
+SparksSprite1:
+    .byte $00,$DA,$00,$00
+    .byte $FF
+SparksSprite2:
+    .byte $00,$DB,$00,$00
+    .byte $FF
+
+LightningSprite1:
+    .byte $00,$D4,$00,$00
+    .byte $FF
+LightningSprite2:
+    .byte $00,$D5,$00,$00
+    .byte $FF
+LightningSprite3:
+    .byte $00,$D6,$00,$00
+    .byte $FF
+LightningSprite4:
+    .byte $00,$D7,$00,$00
+    .byte $FF
+LightningSprite5:
+    .byte $00,$D8,$00,$00
+    .byte $FF
+LightningSprite6:
+    .byte $00,$D9,$00,$00
+    .byte $FF
 
 JumpStrength:
     .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$00,$00,$00,$01

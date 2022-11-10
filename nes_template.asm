@@ -58,6 +58,7 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     LightningEmitter = 8 
     Sparks = 9 
     Lightning = 10
+    Fireball = 11
 .endscope
 
 .scope CollisionType
@@ -107,12 +108,14 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     scrolly: .res 1 ; how far the screen is scrolled in y dir
     var_mem: .res 4 ; sometimes we need to jump to a subroutine and do something with more data than can be juggled with x/y/a
     buttons: .res 1 ; this holds the state of player input for controller 1
-    buttons_p2: .res 2 ; this holds the state of player input for controller 1
+    buttonsp2: .res 2 ; this holds the state of player input for controller 1
+    buttonflag: .res 1
+    buttonflagp2: .res 1 
     currenttable: .res 1
     currentrowodd: .res 1 ; holds the currrent row when drawing tiles
     currentroweven: .res 1
     currentcollisionaddress: .res 2
-    ButtonFlag: .res 1
+    
     framecount: .res 1
     currentbank: .res 1
     oambufferoffset: .res 1
@@ -395,22 +398,29 @@ STA $A000
 ; LDA #EntityType::Player
 ; JSR SpawnEntity
 
-; LDY #$18
-; LDX #$30
-; LDA #EntityType::Player2
-; JSR SpawnEntity
+LDA #%01000001
+STA temp
+LDY #$18
+LDX #$30
+LDA #EntityType::Player2
+JSR SpawnEntity
 
-; LDY #$18
-; LDX #$40
-; LDA #EntityType::Player3
-; JSR SpawnEntity
+LDA #%01000010
+STA temp
+LDY #$18
+LDX #$40
+LDA #EntityType::Player3
+JSR SpawnEntity
 
-; LDY #$18
-; LDX #$50
-; LDA #EntityType::Player4
-; JSR SpawnEntity
+LDA #%01000011
+STA temp
+LDY #$18
+LDX #$50
+LDA #EntityType::Player4
+JSR SpawnEntity
 
-
+LDA #%01000000
+STA temp
 LDY #$18
 LDX #$20
 LDA #EntityType::Player
@@ -432,30 +442,30 @@ LDX #$30
 LDA #EntityType::Explosion
 JSR SpawnEntity
 
-LDY #$80
-LDX #80
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$80
+; LDX #80
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$60
-LDX #$20
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$60
+; LDX #$20
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$40
-LDX #$30
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$40
+; LDX #$30
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$40
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$40
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$00
-LDX #$50
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$00
+; LDX #$50
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
 LDY #$00
 LDX #$60
@@ -803,6 +813,15 @@ ProcessEntities:
         STA jumppointer+1 
         JMP (jumppointer)
 
+    ProcessFireball:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA FireBallStateMachine, Y 
+        STA jumppointer
+        LDA FireBallStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
 
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
@@ -823,6 +842,7 @@ PlayerStateMachine:
     .word PlayerOnFloor
     .word PlayerJumping
     .word PlayerFalling
+    .word PlayerDisabled
 
 ProjectileSpellStateMachine:
     .word ProjectileSpellMovingLeft 
@@ -847,6 +867,11 @@ SliderStateMachine:
 ExplosionStateMachine:
     .word ExplosionInit
     .word ExplosionExplode
+
+FireBallStateMachine:
+    .word FireballInit
+    .word FireballMoveRight
+    .word FireballMoveLeft
 
 ; Entity Behaviours
 
@@ -888,15 +913,39 @@ PlayerInit:
     :
     JMP EntityComplete
 PlayerOnFloor:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+    TXA 
+    PHA 
+    LDA entities+Entity::attributes, X 
+    STA temp 
+    LDA entities+Entity::ypos, X 
+    TAY 
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC $08
+    TAX 
+    LDA #EntityType::Fireball
+    JSR SpawnEntity
+    PLA 
+    TAX  
+    :
+    ; tick the animation timer
     DEC entities+Entity::animationtimer, X
     LDA entities+Entity::animationtimer, X
     BNE :+
+    ; if timer = 0, animate
+    
     LDA #$20 
     STA entities+Entity::animationtimer, x
     LDA entities+Entity::animationframe, X
     EOR #$01 
     STA entities+Entity::animationframe, X
     : 
+    ; Check if we're on the floor
     JSR CollideDown
     BNE :+
     LDA #$03 
@@ -904,6 +953,7 @@ PlayerOnFloor:
     STA entities+Entity::animationframe
     JMP EntityComplete
     :
+    ;Check Right Collision
     JSR CheckRight
     BEQ :+
         LDA #$01
@@ -914,6 +964,7 @@ PlayerOnFloor:
         EOR entities+Entity::attributes, X 
         STA entities+Entity::attributes, X
     :
+    ;Check Left Cl
     JSR CheckLeft
     BEQ :+
         LDA #$FF 
@@ -924,8 +975,10 @@ PlayerOnFloor:
         EOR entities+Entity::attributes, X 
         STA entities+Entity::attributes, X
     :
+    ; Check for jump
     JSR CheckA
-    BEQ :+
+    CMP #ButtonReturn::Press
+    BNE :+
     LDA #$02
     STA playerstate
     LDA #$FE
@@ -938,6 +991,27 @@ PlayerOnFloor:
     :
     JMP EntityComplete 
 PlayerJumping:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+    TXA 
+    PHA 
+    LDA entities+Entity::attributes, X 
+    STA temp 
+    LDA entities+Entity::ypos, X 
+    TAY 
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC $08
+    TAX 
+    LDA #EntityType::Fireball
+    JSR SpawnEntity
+    PLA 
+    TAX  
+    :
+
     JSR  CheckA
     LDA #$01
     STA entities+Entity::animationframe, X
@@ -954,6 +1028,12 @@ PlayerJumping:
         CLC 
         ADC entities+Entity::xpos,X
         STA entities+Entity::xpos, X
+    :
+    JSR CollideUp
+    BNE :+
+    LDA #$03 
+    STA playerstate
+    JMP EntityComplete
     :
     LDY entities+Entity::generalpurpose, X 
     LDA JumpStrength, Y 
@@ -972,19 +1052,25 @@ PlayerFalling:
     LDA #$00 
     STA entities+Entity::animationframe, X
     JSR CheckRight
-    BEQ :+
+    BEQ PlayerFallingNoRightInput
+        JSR CollideRight
+        BNE :+
         LDA #$01
         CLC 
         ADC entities+Entity::xpos,X
         STA entities+Entity::xpos,X
-    :
+        :
+    PlayerFallingNoRightInput:
     JSR CheckLeft
-    BEQ :+
+    BEQ PlayerFallingNoLeftInput
+        JSR CollideLeft
+        BNE :+
         LDA #$FF 
         CLC 
         ADC entities+Entity::xpos,X
         STA entities+Entity::xpos, X
-    :
+        :
+    PlayerFallingNoLeftInput:
     JSR CollideDown
     BEQ :+
         LDA #$01 
@@ -1007,6 +1093,8 @@ PlayerFalling:
     ADC entities+Entity::ypos, X
     STA entities+Entity::ypos, X
     
+    JMP EntityComplete
+PlayerDisabled:
     JMP EntityComplete
 
 ProjectileSpellMovingLeft:
@@ -1278,8 +1366,45 @@ ExplosionExplode:
     :
     JMP EntityComplete
 
+FireballInit:
+    LDA #$08 
+    STA entities+Entity::animationtimer, X
+    LDA #%00000010
+    STA entities+Entity::collisionlayer, x
+    LDA entities+Entity::attributes, X
+    STA temp 
+    LDA #%01000000 
+    BIT temp
+    BNE :+
+    ; if 0, it is facing left and needs to go left
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+    :
+    LDA #$02 
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+FireballMoveLeft:
+    JSR CollideLeft
+    BEQ :+
+    TXA  
+    JSR AddEntityToDestructionStack
+    JMP EntityComplete
+    :
+    DEC entities+Entity::xpos, X 
+    JMP EntityComplete
+FireballMoveRight:
+    JSR CollideRight
+    BEQ :+
+    TXA  
+    JSR AddEntityToDestructionStack
+    JMP EntityComplete
+    :
+    INC entities+Entity::xpos, X 
+    JMP EntityComplete
 
 ClearEntity:
+    ; wasteful but safer to clear all and not just type
     LDA #$00 
     STA entities+Entity::type, X
     STA entities+Entity::xpos, X
@@ -1491,6 +1616,9 @@ SpawnEntity:
         STA entities+Entity::xpos, X
         PLA 
         STA entities+Entity::type, X
+        LDA temp 
+        STA entities+Entity::attributes, X 
+        ; some entities will override temp in their init, but there are circumstances where you want e.g. the attributes of the entity that spawned this one
         LDA #$00
         STA entities+Entity::generalpurpose, X 
         STA entities+Entity::animationtimer, X 
@@ -1555,7 +1683,7 @@ ReadButtons:
     LDA #$01
     STA $4016
     STA buttons        ; Put 1 into buttons so we can use it to manipulate the carry flag in 8 loops time
-    ROR A ; sets the carry
+    LSR A ; sets the carry
     STA $4016
 
     ;TODO make this a loop by slotting a one back into the carry flag after the 8th loop
@@ -1569,14 +1697,14 @@ ReadButtons:
     CLC 
     LDA #$01
     STA $4017
-    STA buttons_p2
+    STA buttonsp2
     ROR 
     STA $4017
 
     ButtonLoopP2:
         LDA $4016
         ROR 
-        ROL buttons_p2
+        ROL buttonsp2
         BCC ButtonLoopP2
 RTS
 
@@ -1585,19 +1713,19 @@ CheckA:
     LDA buttons 
     AND #%10000000 ; if the first nibble is set then a is pressed
     BEQ CheckARelease
-    LDA ButtonFlag ; if the button is pressed, set this so that we can check release next frame
+    LDA buttonflag ; if the button is pressed, set this so that we can check release next frame
     ORA #$01
-    STA ButtonFlag
+    STA buttonflag
     LDA #$01 
     RTS
 
     CheckARelease: ; If the button isn't pressed, check whether it was pressed last frame and released
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$01
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$01 
-        STA ButtonFlag
+        STA buttonflag
         LDA #$02
         RTS 
 :
@@ -1609,41 +1737,41 @@ CheckB:
     LDA buttons 
     AND #%01000000
     BEQ CheckBRelease
-    LDA ButtonFlag
+    LDA buttonflag
     ORA #$02
-    STA ButtonFlag
-    LDA ButtonReturn::Press
+    STA buttonflag
+    LDA #ButtonReturn::Press
     RTS
 
     CheckBRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$02
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$02 
-        STA ButtonFlag
-        LDA ButtonReturn::Release
+        STA buttonflag
+        LDA #ButtonReturn::Release
         RTS 
 :
-LDA ButtonReturn::NoPress
+LDA #ButtonReturn::NoPress
 RTS 
 
 CheckSelect:
     LDA buttons
     AND #%00100000
     BEQ CheckSelectRelease 
-    LDA ButtonFlag
+    LDA buttonflag
     ORA #$04 
-    STA ButtonFlag    
+    STA buttonflag    
     LDA ButtonReturn::Press
     RTS
     CheckSelectRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$04
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$04 
-        STA ButtonFlag
+        STA buttonflag
         LDA ButtonReturn::Release
         RTS 
 :
@@ -1654,18 +1782,18 @@ CheckStart:
     LDA buttons
     AND #%00010000
     BEQ CheckStartRelease
-    LDA ButtonFlag
+    LDA buttonflag
     ORA #$08
-    STA ButtonFlag
+    STA buttonflag
     LDA ButtonReturn::Press
     RTS
     CheckStartRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$08
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$08 
-        STA ButtonFlag
+        STA buttonflag
         LDA ButtonReturn::Release
         RTS 
 :
@@ -1676,18 +1804,18 @@ CheckUp:
     LDA buttons
     AND #%00001000
     BEQ  CheckUpRelease
-    LDA ButtonFlag
+    LDA buttonflag
     ORA #$10
-    STA ButtonFlag
+    STA buttonflag
     LDA ButtonReturn::Press
     RTS
     CheckUpRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$10
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$10 
-        STA ButtonFlag
+        STA buttonflag
         LDA ButtonReturn::Release
         RTS 
 :
@@ -1698,18 +1826,18 @@ CheckDown:
     LDA buttons
     AND #%00000100
     BEQ CheckDownRelease 
-    LDA ButtonFlag 
+    LDA buttonflag 
     ORA #$20 
-    STA ButtonFlag 
+    STA buttonflag 
     LDA ButtonReturn::Press
     RTS
     CheckDownRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$20
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$20 
-        STA ButtonFlag
+        STA buttonflag
         LDA ButtonReturn::Release
         RTS 
 :
@@ -1720,18 +1848,18 @@ CheckLeft:
     LDA buttons
     AND #%00000010
     BEQ CheckLeftRelease
-    LDA ButtonFlag
+    LDA buttonflag
     ORA #$40 
-    STA ButtonFlag 
+    STA buttonflag 
     LDA #$01
     RTS
     CheckLeftRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$04
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$04 
-        STA ButtonFlag
+        STA buttonflag
         LDA #$02
         RTS 
 :
@@ -1743,26 +1871,216 @@ CheckRight:
     LDA buttons
     AND #%00000001
     BEQ CheckRightRelease
-    LDA ButtonFlag 
+    LDA buttonflag 
     ORA #$80 
-    STA ButtonFlag
+    STA buttonflag
     LDA #$01
     RTS
     CheckRightRelease:
-        LDA ButtonFlag
+        LDA buttonflag
         AND #$80
         BEQ :+
-        LDA ButtonFlag
+        LDA buttonflag
         EOR #$80 
-        STA ButtonFlag
+        STA buttonflag
         LDA #$02
         RTS 
 :
 LDA #$00
 RTS 
 
+CheckAP2:
+    LDA buttonsp2 
+    AND #%10000000 ; if the first nibble is set then a is pressed
+    BEQ CheckAReleaseP2
+    LDA buttonflagp2 ; if the button is pressed, set this so that we can check release next frame
+    ORA #$01
+    STA buttonflagp2
+    LDA #$01 
+    RTS
+
+    CheckAReleaseP2: ; If the button isn't pressed, check whether it was pressed last frame and released
+        LDA buttonflagp2
+        AND #$01
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$01 
+        STA buttonflagp2
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
+CheckBP2:
+
+    LDA buttonsp2 
+    AND #%01000000
+    BEQ CheckBReleaseP2
+    LDA buttonflagp2
+    ORA #$02
+    STA buttonflagp2
+    LDA #ButtonReturn::Press
+    RTS
+
+    CheckBReleaseP2:
+        LDA buttonflagp2
+        AND #$02
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$02 
+        STA buttonflagp2
+        LDA #ButtonReturn::Release
+        RTS 
+:
+LDA #ButtonReturn::NoPress
+RTS 
+
+CheckSelectP2:
+    LDA buttonsp2
+    AND #%00100000
+    BEQ CheckSelectReleaseP2 
+    LDA buttonflagp2
+    ORA #$04 
+    STA buttonflagp2    
+    LDA ButtonReturn::Press
+    RTS
+    CheckSelectReleaseP2:
+        LDA buttonflagp2
+        AND #$04
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$04 
+        STA buttonflagp2
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckStartP2:
+    LDA buttonsp2
+    AND #%00010000
+    BEQ CheckStartReleaseP2
+    LDA buttonflagp2
+    ORA #$08
+    STA buttonflagp2
+    LDA ButtonReturn::Press
+    RTS
+    CheckStartReleaseP2:
+        LDA buttonflagp2
+        AND #$08
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$08 
+        STA buttonflagp2
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckUpP2:  
+    LDA buttonsp2
+    AND #%00001000
+    BEQ  CheckUpReleaseP2
+    LDA buttonflagp2
+    ORA #$10
+    STA buttonflagp2
+    LDA ButtonReturn::Press
+    RTS
+    CheckUpReleaseP2:
+        LDA buttonflagp2
+        AND #$10
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$10 
+        STA buttonflagp2
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckDownP2:
+    LDA buttonsp2
+    AND #%00000100
+    BEQ CheckDownReleaseP2 
+    LDA buttonflagp2 
+    ORA #$20 
+    STA buttonflagp2 
+    LDA ButtonReturn::Press
+    RTS
+    CheckDownReleaseP2:
+        LDA buttonflagp2
+        AND #$20
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$20 
+        STA buttonflagp2
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckLeftP2:
+    LDA buttonsp2
+    AND #%00000010
+    BEQ CheckLeftReleaseP2
+    LDA buttonflagp2
+    ORA #$40 
+    STA buttonflagp2 
+    LDA #$01
+    RTS
+    CheckLeftReleaseP2:
+        LDA buttonflagp2
+        AND #$04
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$04 
+        STA buttonflagp2
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
+CheckRightP2:
+
+    LDA buttonsp2
+    AND #%00000001
+    BEQ CheckRightReleaseP2
+    LDA buttonflagp2 
+    ORA #$80 
+    STA buttonflagp2
+    LDA #$01
+    RTS
+    CheckRightReleaseP2:
+        LDA buttonflagp2
+        AND #$80
+        BEQ :+
+        LDA buttonflagp2
+        EOR #$80 
+        STA buttonflagp2
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
+
+
+
 EndButtons:
 RTS
+
+
+
+
+
+
+
 
 InputA:
     JSR CollideDown
@@ -2431,6 +2749,24 @@ DrawSparks:
     :
     JMP DrawSpriteInit
 
+
+DrawFireball:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListFireball, Y 
+    STA jumppointer
+    LDA MetaSpriteListFireball+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+
+
 ;;;;;;;;
 ;; DEATH FUNCTIONS
 ;; These are all called from ProcessDestructionStack and MUST return there when they finish
@@ -2841,6 +3177,7 @@ ProcessEntityList: ; Jump table for processing entities
     .word ProcessLightningEmitter
     .word ProcessSparks 
     .word ProcessLightning 
+    .word ProcessFireball
 
 DrawSpriteList: ; this is a list of sprite definitions
     .word SkipDraw
@@ -2854,6 +3191,7 @@ DrawSpriteList: ; this is a list of sprite definitions
     .word DrawLightningEmitter 
     .word DrawSparks
     .word DrawLightning
+    .word DrawFireball
 
 MetaSpriteListPlayer:
     .word PlayerSprite1
@@ -2925,6 +3263,9 @@ MetaSpriteListLightning:
     .word LightningSprite4
     .word LightningSprite5
     .word LightningSprite6
+
+MetaSpriteListFireball:
+    .word FireballSprite1
 
 PlayerSprite1:
     .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
@@ -3083,6 +3424,10 @@ LightningSprite5:
     .byte $FF
 LightningSprite6:
     .byte $00,$D9,$00,$00
+    .byte $FF
+
+FireballSprite1:
+    .byte $00,$40,$00,$00
     .byte $FF
 
 JumpStrength:

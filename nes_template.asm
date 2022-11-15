@@ -138,6 +138,8 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     playerstate: .res 1
     vyhigh: .res 1
     vylow: .res 1
+    projectilecountp1: .res 1
+    projectilecooldownp1: .res 1
     playerstateP2: .res 1
     vxlowp2: .res 1
     vyhighP3: .res 1
@@ -407,9 +409,8 @@ STA $A000
     JSR LoadSingleScreen
 
 
-
-LDY #$80
-LDX #$E0
+LDY #$50
+LDX #$50
 LDA #EntityType::Player
 JSR SpawnEntity
 
@@ -542,8 +543,17 @@ DoGameLogic:
     JSR ReadButtons
     JSR ProcessEntities
     JSR ProcessDestructionStack
+    JSR DecrementTimers
     
 RTS
+
+DecrementTimers:
+    LDA projectilecooldownp1
+    BEQ :+
+        DEC projectilecooldownp1
+    :
+
+    RTS 
 
 ProcessSpawnStack:
     ; LDY SpawnerIndex
@@ -912,22 +922,9 @@ PlayerOnFloor:
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
-    CMP #ButtonReturn::Release
+    CMP #ButtonReturn::NoPress
     BNE :+
-    TXA 
-    PHA 
-    LDA entities+Entity::attributes, X 
-    STA temp 
-    LDA entities+Entity::ypos, X 
-    TAY 
-    LDA entities+Entity::xpos, X 
-    CLC 
-    ADC $08
-    TAX 
-    LDA #EntityType::Fireball
-    JSR SpawnEntity
-    PLA 
-    TAX  
+        JSR PlayerAttemptSpawnFireball
     :
     ; tick the animation timer
     DEC entities+Entity::animationtimer, X
@@ -1054,6 +1051,13 @@ PlayerJumping:
     INC entities+Entity::generalpurpose, X 
     JMP EntityComplete
 PlayerFalling:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::NoPress
+    BNE :+
+        JSR PlayerAttemptSpawnFireball
+    :
     LDA #$00 
     STA entities+Entity::animationframe, X
     JSR CheckRight
@@ -1102,6 +1106,31 @@ PlayerDisabled:
     JMP EntityComplete
 PlayerIdle:
     JMP EntityComplete
+PlayerAttemptSpawnFireball:
+    LDA projectilecooldownp1 ; load cooldown
+    BEQ :+ ; if timer is zero, continue, else return
+        RTS 
+    :
+    TXA 
+    PHA 
+    LDA entities+Entity::attributes, X 
+    STA temp 
+    LDA entities+Entity::ypos, X
+    SEC 
+    SBC #$01
+    TAY 
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$09 
+    TAX 
+    LDA #EntityType::Fireball
+    JSR SpawnEntity
+    LDA #$10
+    STA projectilecooldownp1
+    PLA 
+    TAX 
+    PlayerEndSpawnFireball:
+        RTS 
 ProjectileSpellMovingLeft:
     JSR CollideLeft2
     BEQ :+
@@ -2879,7 +2908,7 @@ CollideDown2:
     TYA 
     CLC 
     ADC #$01 
-    TYA 
+    TAY
     :
     LDA entities+Entity::ypos, X 
     SEC 
@@ -3083,7 +3112,7 @@ CollideUp2:
     SEC 
     SBC entities+Entity::xpos, X ; get difference between two 
     CMP #$08
-    BCS :+
+    BCC :+
     TYA 
     CLC 
     ADC #$01 
@@ -3093,7 +3122,7 @@ CollideUp2:
     SEC 
     SBC entities+Entity::ypos, X 
     CMP #$08 
-    BCS :+
+    BCC :+
     TYA 
     CLC 
     ADC #$02 

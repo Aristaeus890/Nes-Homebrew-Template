@@ -59,6 +59,20 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     Sparks = 9 
     Lightning = 10
     Fireball = 11
+    Respawner = 12
+    RespawnerPortal = 13
+    RespawnerBroomStick = 14
+.endscope
+
+.scope Spawnlocation
+    Spawn1X = 20
+    Spawn1Y = 20
+    Spawn2X = 200
+    Spawn2Y = 20
+    Spawn3X = 20 
+    Spawn3Y = 200
+    Spawn4X = 200
+    Spawn4Y = 200
 .endscope
 
 .scope CollisionType
@@ -69,11 +83,11 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     LayerFour = 1
 .endscope
 
-.scope PlayerState
-    OnGround = $00
-    Jumping = $01
-    Falling = $02
-.endscope 
+; .scope PlayerState
+;     OnGround = $00
+;     Jumping = $01
+;     Falling = $02
+; .endscope 
 
 .scope ButtonReturn
     NoPress = 0
@@ -393,114 +407,35 @@ STA $A000
     JSR LoadSingleScreen
 
 
-; LDY #$18
-; LDX #$20
-; LDA #EntityType::Player
-; JSR SpawnEntity
 
-LDA #%01000001
-STA temp
-LDY #$18
-LDX #$30
-LDA #EntityType::Player2
-JSR SpawnEntity
-
-LDA #%01000010
-STA temp
-LDY #$18
-LDX #$40
-LDA #EntityType::Player3
-JSR SpawnEntity
-
-LDA #%01000011
-STA temp
-LDY #$18
-LDX #$50
-LDA #EntityType::Player4
-JSR SpawnEntity
-
-LDA #%01000000
-STA temp
-LDY #$18
-LDX #$20
+LDY #$80
+LDX #$E0
 LDA #EntityType::Player
 JSR SpawnEntity
 
-
-LDY #$b0
-LDX #$70
-LDA #EntityType::LightningEmitter
+LDY #$80
+LDX #$50
+LDA #EntityType::Slider
 JSR SpawnEntity
 
-; LDY #$88
-; LDX #$20
-; LDA #EntityType::ProjectileSpell
+; LDY #$1wnEntity
+
+
+
+
+; LDY #$b0
+; LDX #$70
+; LDA #EntityType::LightningEmitter
 ; JSR SpawnEntity
 
-LDY #$50
-LDX #$30
-LDA #EntityType::Explosion
-JSR SpawnEntity
 
-; LDY #$80
-; LDX #80
-; LDA #EntityType::Slider
+
+
+
+; LDY #$FF
+; LDX #$FF
+; LDA #EntityType::Respawner
 ; JSR SpawnEntity
-
-; LDY #$60
-; LDX #$20
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$40
-; LDX #$30
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$00
-; LDX #$40
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$00
-; LDX #$50
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-LDY #$00
-LDX #$60
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDY #$00
-LDX #$70
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDY #$00
-LDX #$80
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDY #$00
-LDX #$90
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDY #$00
-LDX #$A0
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDY #$0B
-LDX #$B0
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDY #$0A
-LDX #$C0
-LDA #EntityType::Slider
-JSR SpawnEntity
 
     ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -516,6 +451,7 @@ Loop:
     ; LDA #EntityType::Slider
     ; JSR SpawnEntity
     JSR DoGameLogic
+    ; DEC scrolly
     
     ; INC scrollx 
     JSR IncFrameCount   ; Counts to 59 then resets to 0
@@ -718,27 +654,27 @@ ProcessEntities:
         LDA playerstateP2
         ASL 
         TAY 
-        LDA PlayerStateMachine, Y
+        LDA Player2StateMachine, Y
         STA jumppointer
-        LDA PlayerStateMachine+1, Y
+        LDA Player2StateMachine+1, Y
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer3:
         LDA playerstateP3
         ASL 
         TAY 
-        LDA PlayerStateMachine, Y
+        LDA Player3StateMachine, Y
         STA jumppointer
-        LDA PlayerStateMachine+1, Y
+        LDA Player3StateMachine+1, Y
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer4:
         LDA playerstateP4
         ASL 
         TAY 
-        LDA PlayerStateMachine, Y
+        LDA Player4StateMachine, Y
         STA jumppointer
-        LDA PlayerStateMachine+1, Y
+        LDA Player4StateMachine+1, Y
         STA jumppointer+1
         JMP (jumppointer)
     ProcessSlider:
@@ -822,6 +758,36 @@ ProcessEntities:
         LDA FireBallStateMachine+1, Y 
         STA jumppointer+1 
         JMP (jumppointer)
+    
+    ProcessRespawner:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA RespawnerStateMachine, Y 
+        STA jumppointer
+        LDA RespawnerStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
+
+    ProcessPortal:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA RespawnerPortalStateMachine, Y 
+        STA jumppointer
+        LDA RespawnerPortalStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
+
+    ProcessBroomStick:
+        LDA entities+Entity::generalpurpose, X
+        ASL 
+        TAY 
+        LDA RespawnerBroomStickStateMachine, Y 
+        STA jumppointer
+        LDA RespawnerBroomStickStateMachine+1, Y 
+        STA jumppointer+1 
+        JMP (jumppointer)
 
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
@@ -843,6 +809,18 @@ PlayerStateMachine:
     .word PlayerJumping
     .word PlayerFalling
     .word PlayerDisabled
+
+Player2StateMachine:
+    .word Player2Init 
+    .word PlayerIdle
+
+Player3StateMachine:
+    .word Player3Init 
+    .word PlayerIdle
+
+Player4StateMachine:
+    .word Player4Init 
+    .word PlayerIdle
 
 ProjectileSpellStateMachine:
     .word ProjectileSpellMovingLeft 
@@ -873,50 +851,68 @@ FireBallStateMachine:
     .word FireballMoveRight
     .word FireballMoveLeft
 
+RespawnerStateMachine:
+    .word RespawnerInit 
+    .word RespawnerMoveToSpawn
+    .word RespawnerMoveLeft
+    .word RespawnerMoveRight
+
+RespawnerPortalStateMachine:
+    .word PortalInit 
+    .word PortalExpand
+    .word PortalWait
+    .word PortalContract
+
+RespawnerBroomStickStateMachine:
+    .word BroomStickInit
+    .word BroomStickMoveToSpawn
+    .word BroomStickLeaveScreen
+
 ; Entity Behaviours
 
 PlayerInit:
-    LDA entities+Entity::type
-    CMP #EntityType::Player
-    BNE :+ 
     LDA #%00000000
     STA entities+Entity::attributes, X 
-    LDA #$01 
+    LDA #$08 
+    STA entities+Entity::animationtimer, X  
+    LDA #$01
 
     STA entities+Entity::collisionlayer, X 
     STA playerstate
     JMP EntityComplete
-    :
-    CMP #EntityType::Player2
-    BNE :+ 
+
+Player2Init:
     LDA #%00000001
     STA entities+Entity::attributes, X 
     LDA #$01 
-    STA playerstate
+
+    STA entities+Entity::collisionlayer, X 
+    STA playerstateP2
     JMP EntityComplete
-    :
-    CMP #EntityType::Player3
-    BNE :+ 
+
+Player3Init:
     LDA #%00000010
     STA entities+Entity::attributes, X 
     LDA #$01 
-    STA playerstate
+
+    STA entities+Entity::collisionlayer, X 
+    STA playerstateP3
     JMP EntityComplete
-    :
-    CMP #EntityType::Player4
-    BNE :+ 
+
+Player4Init:
     LDA #%00000011
     STA entities+Entity::attributes, X 
     LDA #$01 
-    STA playerstate
+
+    STA entities+Entity::collisionlayer, X 
+    STA playerstateP4
     JMP EntityComplete
-    :
-    JMP EntityComplete
+
 PlayerOnFloor:
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
+    CMP #ButtonReturn::Release
     BNE :+
     TXA 
     PHA 
@@ -946,48 +942,53 @@ PlayerOnFloor:
     STA entities+Entity::animationframe, X
     : 
     ; Check if we're on the floor
-    JSR CollideDown
+    JSR CollideDown2
     BNE :+
     LDA #$03 
     STA playerstate
-    STA entities+Entity::animationframe
+    STA entities+Entity::animationframe, X
     JMP EntityComplete
     :
     ;Check Right Collision
     JSR CheckRight
     BEQ :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA #%01000000
-        EOR entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
+        JSR CollideRight2
+        BNE :+
+            LDA #$01
+            CLC 
+            ADC entities+Entity::xpos,X
+            STA entities+Entity::xpos,X
+            LDA #%01000000
+            EOR entities+Entity::attributes, X 
+            STA entities+Entity::attributes, X
     :
+
     ;Check Left Cl
     JSR CheckLeft
     BEQ :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        EOR entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+        BNE :+
+            LDA #$FF 
+            CLC 
+            ADC entities+Entity::xpos,X
+            STA entities+Entity::xpos, X
+            LDA #%01000000
+            EOR entities+Entity::attributes, X 
+            STA entities+Entity::attributes, X
     :
     ; Check for jump
     JSR CheckA
-    CMP #ButtonReturn::Press
+    CMP #ButtonReturn::Release
     BNE :+
-    LDA #$02
-    STA playerstate
-    LDA #$FE
-    STA vyhigh
-    LDA #$00
-    STA vylow
-    STA entities+Entity::generalpurpose, X
-    LDA #$04
-    STA entities+Entity::animationframe, X
+        LDA #$02
+        STA playerstate
+        LDA #$FE
+        STA vyhigh
+        LDA #$00
+        STA vylow
+        STA entities+Entity::generalpurpose, X
+        LDA #$04
+        STA entities+Entity::animationframe, X
     :
     JMP EntityComplete 
 PlayerJumping:
@@ -1012,25 +1013,29 @@ PlayerJumping:
     TAX  
     :
 
-    JSR  CheckA
+    ; JSR  CheckA
     LDA #$01
     STA entities+Entity::animationframe, X
     JSR CheckRight
     BEQ :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
+        JSR CollideRight2
+        BNE :+
+            LDA #$01
+            CLC 
+            ADC entities+Entity::xpos,X
+            STA entities+Entity::xpos,X
     :
     JSR CheckLeft
     BEQ :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
+        JSR CollideRight2
+        BNE :+
+            LDA #$FF 
+            CLC 
+            ADC entities+Entity::xpos,X
+            STA entities+Entity::xpos, X
     :
-    JSR CollideUp
-    BNE :+
+    JSR CollideUp2
+    BEQ :+
     LDA #$03 
     STA playerstate
     JMP EntityComplete
@@ -1053,29 +1058,29 @@ PlayerFalling:
     STA entities+Entity::animationframe, X
     JSR CheckRight
     BEQ PlayerFallingNoRightInput
-        JSR CollideRight
+        JSR CollideRight2
         BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
+            LDA #$01
+            CLC 
+            ADC entities+Entity::xpos,X
+            STA entities+Entity::xpos,X
         :
     PlayerFallingNoRightInput:
     JSR CheckLeft
     BEQ PlayerFallingNoLeftInput
-        JSR CollideLeft
+        JSR CollideLeft2
         BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
+            LDA #$FF 
+            CLC 
+            ADC entities+Entity::xpos,X
+            STA entities+Entity::xpos, X
         :
     PlayerFallingNoLeftInput:
-    JSR CollideDown
+    JSR CollideDown2
     BEQ :+
         LDA #$01 
         STA playerstate
-        STA entities+Entity::animationframe
+        STA entities+Entity::animationframe, X 
         JMP EntityComplete
     :    
     LDA vylow
@@ -1092,13 +1097,13 @@ PlayerFalling:
     CLC 
     ADC entities+Entity::ypos, X
     STA entities+Entity::ypos, X
-    
     JMP EntityComplete
 PlayerDisabled:
     JMP EntityComplete
-
+PlayerIdle:
+    JMP EntityComplete
 ProjectileSpellMovingLeft:
-    JSR CollideLeft
+    JSR CollideLeft2
     BEQ :+
     ; LDA #$02
     ; STA entities+Entity::generalpurpose, X
@@ -1133,7 +1138,7 @@ ProjectileSpellMovingRight:
     TXA 
     JSR AddEntityToDestructionStack
 
-    ; JSR CollideRight
+    ; JSR CollideRight2
     ; BEQ :+
     ; LDA #$02
     ; STA entities+Entity::generalpurpose, X 
@@ -1300,7 +1305,7 @@ SliderRight:
     LDA #$0A 
     STA entities+ Entity::animationtimer, X
     :
-    JSR CollideRight
+    JSR CollideRight2
     BEQ :+ 
     LDA #$02
     STA entities+Entity::generalpurpose, X
@@ -1310,7 +1315,7 @@ SliderRight:
     JMP EntityComplete
     :
     INC entities+Entity::xpos, X 
-    JSR CollideDown
+    JSR CollideDown2
     BNE :+
     INC entities+Entity::ypos, X 
     :
@@ -1324,7 +1329,7 @@ SliderLeft:
     LDA #$0A 
     STA entities+ Entity::animationtimer, X
     :
-    JSR CollideLeft
+    JSR CollideLeft2
     BEQ :+ 
     LDA #$01
     STA entities+Entity::generalpurpose, X
@@ -1334,7 +1339,7 @@ SliderLeft:
     JMP EntityComplete
     :
     DEC entities+Entity::xpos, X 
-    JSR CollideDown
+    JSR CollideDown2
     BNE :+
     INC entities+Entity::ypos, X 
     :
@@ -1385,7 +1390,7 @@ FireballInit:
     STA entities+Entity::generalpurpose, X 
     JMP EntityComplete
 FireballMoveLeft:
-    JSR CollideLeft
+    JSR CollideLeft2
     BEQ :+
     TXA  
     JSR AddEntityToDestructionStack
@@ -1394,13 +1399,280 @@ FireballMoveLeft:
     DEC entities+Entity::xpos, X 
     JMP EntityComplete
 FireballMoveRight:
-    JSR CollideRight
+    JSR CollideRight2
     BEQ :+
     TXA  
     JSR AddEntityToDestructionStack
     JMP EntityComplete
     :
     INC entities+Entity::xpos, X 
+    JMP EntityComplete
+
+RespawnerInit:
+    LDA #$16
+    STA entities+Entity::animationtimer, X 
+    LDA #$00
+    STA entities+Entity::collisionlayer, X 
+    STA entities+Entity::attributes, X
+    STA entities+Entity::animationframe
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
+RespawnerMoveToSpawn:
+    ; animate 
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    LDA #$01 
+    EOR entities+Entity::animationframe, X 
+    STA entities+Entity::animationframe, X 
+    LDA #$16 
+    STA entities+Entity::animationtimer, X 
+
+    :
+    ;move
+    LDA entities+Entity::xpos, X 
+    CMP #Spawnlocation::Spawn1X
+    BEQ RespawnerEndXMove
+    BCS :+
+    INC entities+Entity::xpos, X 
+    JMP RespawnerEndXMove
+    :
+    DEC entities+Entity::xpos, X 
+    RespawnerEndXMove:
+
+    LDA entities+Entity::ypos, X 
+    CMP #Spawnlocation::Spawn1Y
+    BEQ RespawnerEndYMove
+    BCS :+
+    INC entities+Entity::ypos, X 
+    JMP RespawnerEndYMove
+    :
+    DEC entities+Entity::ypos, X 
+    RespawnerEndYMove:
+    
+    LDA entities+Entity::ypos, X
+    CMP #Spawnlocation::Spawn1Y
+    BNE EndRespawnerMoveToSpawn 
+    LDA entities+Entity::xpos, X 
+    CMP #Spawnlocation::Spawn1X
+    BNE EndRespawnerMoveToSpawn
+    ; At spawnpoint, create player 
+    TXA 
+    PHA 
+    LDY entities+Entity::ypos, X 
+    LDA entities+Entity::xpos, X 
+    TAX 
+    LDA #EntityType::Player
+    JSR SpawnEntity
+    PLA 
+    TAX 
+
+    ; check which direction to leave the screen in
+    CMP #$40
+    BCC :+    
+    LDA #$02
+    STA entities+Entity::generalpurpose, X
+    JMP EntityComplete
+    : 
+    LDA #$03
+    STA entities+Entity::generalpurpose, X
+    JMP EntityComplete
+    EndRespawnerMoveToSpawn:
+    JMP EntityComplete
+
+RespawnerMoveLeft:
+    ; animate 
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    LDA #$01 
+    EOR entities+Entity::animationframe, X 
+    STA entities+Entity::animationframe, X 
+    LDA #$16 
+    STA entities+Entity::animationtimer, X 
+    :
+    ;move
+    LDA entities+Entity::xpos, X 
+    SEC  
+    SBC #$02
+    STA entities+Entity::xpos, X 
+    BCS :+
+    TXA 
+    JSR AddEntityToDestructionStack
+    :
+    JMP EntityComplete
+
+RespawnerMoveRight:
+    ; animate 
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    LDA #$01 
+    EOR entities+Entity::animationframe, X 
+    STA entities+Entity::animationframe, X 
+    LDA #$16 
+    STA entities+Entity::animationtimer, X 
+    :
+    ;move
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$03 
+    STA entities+Entity::xpos, X 
+    BCC :+
+    TXA 
+    JSR AddEntityToDestructionStack
+    :
+    JMP EntityComplete
+
+PortalInit: ; spawns player 2 
+    LDA #Spawnlocation::Spawn2X
+    STA entities+Entity::xpos, X 
+    LDA #Spawnlocation::Spawn2Y
+    STA entities+Entity::ypos, X
+    LDA #$00
+    STA entities+Entity::animationtimer, X 
+    STA entities+Entity::collisionlayer, X 
+    LDA #$01
+    STA entities+Entity::attributes, X
+    LDA #$00
+    STA entities+Entity::animationframe, X 
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+PortalExpand:
+    LDY entities+Entity::animationtimer, X 
+    LDA AnimationPortalExpand, Y
+    BMI :+
+    STA entities+Entity::animationframe, X 
+    INC entities+Entity::animationtimer, X
+    JMP EntityComplete
+    :
+    LDA #$00
+    STA entities+Entity::animationtimer, X 
+    LDA #$02 
+    STA entities+Entity::generalpurpose, X
+    ; spawn player 3
+    TXA 
+    PHA 
+    LDA entities+Entity::ypos, X 
+    CLC 
+    ADC #$04
+    TAY 
+    LDA entities+Entity::xpos, X
+    CLC 
+    ADC #$04
+    TAX 
+    LDA #EntityType::Player2 
+    JSR SpawnEntity
+    PLA 
+    TAX 
+
+    JMP EntityComplete
+PortalWait:
+    LDY entities+Entity::animationtimer, X 
+    LDA AnimationPortalWait, Y
+    BMI :+
+    STA entities+Entity::animationframe, X 
+    INC entities+Entity::animationtimer, X
+    JMP EntityComplete
+    :
+    LDA #$03 
+    STA entities+Entity::generalpurpose, X 
+    LDA #$00
+    STA entities+Entity::animationtimer, X
+    JMP EntityComplete
+PortalContract:
+    LDY entities+Entity::animationtimer, X 
+    LDA AnimationPortalContract, Y
+    BMI :+
+    STA entities+Entity::animationframe, X 
+    INC entities+Entity::animationtimer, X
+    JMP EntityComplete
+    :
+DestroyPortal:
+    TXA 
+    JSR AddEntityToDestructionStack
+    JMP EntityComplete
+
+BroomStickInit:; spawns player 3
+    LDA #$16
+    STA entities+Entity::animationtimer, X 
+    LDA #$00
+    STA entities+Entity::collisionlayer, X 
+    LDA #$02
+    STA entities+Entity::attributes, X
+    LDA #$00
+    STA entities+Entity::animationframe
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+BroomStickMoveToSpawn:
+    LDA #$02
+    STA temp
+    LDA entities+Entity::xpos, X 
+    CMP #Spawnlocation::Spawn3X
+    BEQ :+
+    CLC 
+    ADC #$02 
+    STA entities+Entity::xpos, X 
+    INC temp
+    :
+    DEC temp
+    LDA entities+ Entity::ypos,x
+    CMP #Spawnlocation::Spawn3Y
+    BEQ :+
+    CLC 
+    ADC #$02 
+    STA entities+Entity::ypos, X 
+    INC temp
+    :
+    DEC temp
+    ;check for spawn point reached
+    LDA temp
+    BEQ :+
+    JMP EntityComplete
+    :
+    LDA #$02 
+    STA entities+Entity::generalpurpose, X 
+    LDA #$00 
+    STA entities+Entity::animationtimer
+
+    JMP EntityComplete
+BroomStickLeaveScreen:
+    LDA entities+Entity::animationtimer, X
+    CMP #$0A
+    BNE :+
+    ;spawn player 
+    TXA 
+    PHA 
+    LDY entities+Entity::ypos, X
+    LDA entities+Entity::xpos, X 
+    ADC #$04
+    TAX 
+    LDA #EntityType::Player3
+    JSR SpawnEntity
+    PLA
+    TAX 
+    :
+    LDY entities+Entity::animationtimer, X
+    LDA SpawnerSpeedRamp, Y
+    CMP #$FF
+    BEQ :+
+    CLC 
+    ADC entities+Entity::xpos,X
+    STA entities+Entity::xpos,X
+    INC entities+Entity::animationtimer, X
+    JMP EntityComplete
+    :
+    LDA #$02 
+    CLC 
+    ADC entities+Entity::xpos, X
+    CMP #$F0 
+    BEQ :+
+    STA entities+Entity::xpos, X
+    JMP EntityComplete
+    :
+    TXA 
+    JSR AddEntityToDestructionStack
     JMP EntityComplete
 
 ClearEntity:
@@ -1541,6 +1813,17 @@ LoadSingleScreen:
         CMP #$F0 
         BNE LoadScreenLoop
 
+    FillCollisionMap:
+        LDY #$00 
+        FillCollisionMapLoop:
+        LDA (world), Y 
+        STA CollisionMap, Y 
+        INY 
+        TYA 
+        CMP #$F0 
+        BEQ :+
+        JMP FillCollisionMapLoop
+        :
  
 
 EndScreenLoad:
@@ -2169,6 +2452,140 @@ InputSelectRelease:
 ;;;;;;;;
 ; Collision
 ;;;;;;;;
+CollideLeft2:
+    LDA entities+Entity::xpos, X ;4  
+    SEC ; 2
+    SBC #$01 ; 2
+    LSR ;2
+    LSR ;2
+    LSR ;2
+    LSR;2
+
+    STA temp ; 3 
+
+    LDA entities+Entity::ypos, X ;
+    ; CLC 
+    ; ADC #$07
+    LSR ;2
+    LSR ;2
+    LSR ;2
+    LSR ;2
+
+    ASL ;2
+    ASL ;2
+    ASL 
+    ASL 
+
+    STA temp2 ;3
+
+    CLC ; 2
+    ADC temp ;2 
+    TAY ; 2
+    LDA CollisionMap, Y ; 4/5
+    ASL ;2 
+    TAY  ;2
+    LDA MetaTileList, Y ;4/5
+    STA jumppointer ; 3
+    LDA MetaTileList+1, Y ; 4/5 
+    STA jumppointer+1 ;3
+
+    LDY #$04 ; 2 
+    LDA temp ; 3
+    ASL ;2 
+    ASL ;2
+    ASL ;2
+    ASL ; X16 to return it to world scale 
+    STA temp ;3  
+    SEC ; 2
+    SBC entities+Entity::xpos, X ;4/5 
+    ; SBC temp ; get difference between two 
+    CMP #$08 ; 2
+    BCC :+ ; 2/3
+    TYA ;2
+    CLC ;2
+    ADC #$01 ;2 
+    TAY ;2
+    :
+    LDA temp2 ;3  
+    SEC ;2
+    SBC entities+Entity::ypos, X ; 4/5 
+    CMP #$08 ;2
+    BCC :+ ;2/3
+    TYA ;2
+    CLC ;2
+    ADC #$02 ;2 
+    TAY ;2
+    :
+    LDA (jumppointer), Y ;5/6
+    STA rectangle1 ;3
+
+    ; get collision of second point 
+    ; LDA entities+Entity::xpos, X 
+    ; SEC 
+    ; ADC #$01
+    ; LSR 
+    ; LSR 
+    ; LSR 
+    ; LSR
+
+    ; STA temp 
+
+    ; LDA entities+Entity::ypos, X
+    ; CLC 
+    ; ADC #$07
+    ; LSR 
+    ; LSR
+    ; LSR 
+    ; LSR 
+
+    ; ASL 
+    ; ASL 
+    ; ASL 
+    ; ASL 
+
+    ; STA temp2
+
+    ; CLC
+    ; ADC temp 
+    ; TAY 
+    ; LDA CollisionMap, Y
+    ; ASL 
+    ; TAY  
+    ; LDA MetaTileList, Y 
+    ; STA jumppointer 
+    ; LDA MetaTileList+1, Y 
+    ; STA jumppointer+1
+
+    ; LDY #$04 
+    ; LDA temp
+    ; ASL 
+    ; ASL 
+    ; ASL 
+    ; ASL ; X16 to return it to world scale 
+    ; STA temp 
+    ; SEC 
+    ; SBC entities+Entity::xpos, X 
+    ; ; SBC temp ; get difference between two 
+    ; CMP #$08
+    ; BCC :+
+    ; TYA 
+    ; CLC 
+    ; ADC #$01 
+    ; TAY
+    ; :
+    ; LDA temp2 
+    ; SEC 
+    ; SBC temp2
+    ; CMP #$08 
+    ; BCC :+
+    ; TYA 
+    ; CLC 
+    ; ADC #$02 
+    ; TAY 
+    ; :
+    ; LDA (jumppointer), Y 
+    ; ORA rectangle1
+    RTS 
 
 CollideLeft:
     LDA entities+Entity::xpos, X
@@ -2217,6 +2634,141 @@ CollideLeft:
     LDA CollisionMap, Y 
     ORA temp2
 
+    RTS 
+
+CollideRight2:
+    LDA entities+Entity::xpos, X ;4  
+    CLC ; 2
+    ADC #$07 ; 2
+    LSR ;2
+    LSR ;2
+    LSR ;2
+    LSR;2
+
+    STA temp ; 3 
+
+    LDA entities+Entity::ypos, X ;
+    ; CLC 
+    ; ADC #$07
+    LSR ;2
+    LSR ;2
+    LSR ;2
+    LSR ;2
+
+    ASL ;2
+    ASL ;2
+    ASL 
+    ASL 
+
+    STA temp2 ;3
+
+    CLC ; 2
+    ADC temp ;2 
+    TAY ; 2
+    LDA CollisionMap, Y ; 4/5
+    ASL ;2 
+    TAY  ;2
+    LDA MetaTileList, Y ;4/5
+    STA jumppointer ; 3
+    LDA MetaTileList+1, Y ; 4/5 
+    STA jumppointer+1 ;3
+
+    LDY #$04 ; 2 
+    LDA temp ; 3
+    ASL ;2 
+    ASL ;2
+    ASL ;2
+    ASL ; X16 to return it to world scale 
+    STA temp ;3  
+    SEC ; 2
+    SBC entities+Entity::xpos, X ;4/5 
+    ; SBC temp ; get difference between two 
+    CMP #$08 ; 2
+    BCC :+ ; 2/3
+    TYA ;2
+    CLC ;2
+    ADC #$01 ;2 
+    TAY ;2
+    :
+    LDA temp2 ;3  
+    SEC ;2
+    SBC entities+Entity::ypos, X ; 4/5 
+    CMP #$08 ;2
+    BCC :+ ;2/3
+    TYA ;2
+    CLC ;2
+    ADC #$02 ;2 
+    TAY ;2
+    :
+    LDA (jumppointer), Y ;5/6
+    STA rectangle1 ;3
+
+    ; get collision of second point 
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$07
+    LSR 
+    LSR 
+    LSR 
+    LSR
+
+    STA temp 
+
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$07
+    LSR 
+    LSR
+    LSR 
+    LSR 
+
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    STA temp2
+
+    CLC
+    ADC temp 
+    TAY 
+    LDA CollisionMap, Y
+    ASL 
+    TAY  
+    LDA MetaTileList, Y 
+    STA jumppointer 
+    LDA MetaTileList+1, Y 
+    STA jumppointer+1
+
+    LDY #$04 
+    LDA temp
+    ASL 
+    ASL 
+    ASL 
+    ASL ; X16 to return it to world scale 
+    STA temp 
+    SEC 
+    SBC entities+Entity::xpos, X 
+    ; SBC temp ; get difference between two 
+    CMP #$08
+    BCC :+
+    TYA 
+    CLC 
+    ADC #$01 
+    TAY
+    :
+    LDA temp2 
+    SEC 
+    SBC entities+Entity::ypos, X
+    CMP #$08 
+    BCC :+
+    TYA 
+    CLC 
+    ADC #$02 
+    TAY 
+    :
+    LDA (jumppointer), Y 
+    ORA rectangle1
     RTS 
 
 CollideRight: ; only to be called dfrom process entities
@@ -2268,6 +2820,155 @@ CollideRight: ; only to be called dfrom process entities
 
     RTS 
 
+CollideDown2:
+    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$01 ; move 1 pixel in fromthe centre 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; divide by 16
+    ; AND #%00011111 ; mask bits over 16
+    STA temp
+
+    ; Do the same for Y pos 
+    LDA entities+Entity::ypos, X 
+    CLC 
+    ADC #$08 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; we now have the y pos on the grid 
+    ; Index into 2d array: (y * width) + X 
+    ; Width = 16, so asl 4 times, add X to get index into array 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    STA temp2 ; store the y portion
+
+    CLC 
+    ADC temp ; add the x portion
+    TAY 
+    LDA CollisionMap, Y ; load the meta tile id
+    ASL 
+    TAY  
+    LDA MetaTileList, Y 
+    STA jumppointer
+    LDA MetaTileList+1, Y 
+    STA jumppointer+1
+    ; LDY #$04
+    ; LDA (jumppointer), Y 
+    ; RTS
+
+    ; ; work out the tile of the metatile the point we're checking is in 
+    LDY #$04 
+    LDA temp
+    ASL 
+    ASL 
+    ASL 
+    ASL ; X16 to return it to world scale 
+    STA temp 
+    LDA entities+Entity::xpos, X 
+    SEC 
+    SBC temp ; get difference between two 
+    CMP #$08
+    BCS :+
+    TYA 
+    CLC 
+    ADC #$01 
+    TYA 
+    :
+    LDA entities+Entity::ypos, X 
+    SEC 
+    SBC temp2
+    CMP #$08 
+    BCS :+
+    TYA 
+    CLC 
+    ADC #$02 
+    TAY 
+    :
+    LDA (jumppointer), Y
+    STA rectangle1
+
+    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$06 ; move 1 pixel in fromthe centre 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; divide by 16
+    ; AND #%00011111 ; mask bits over 16
+    STA temp
+
+    ; Do the same for Y pos 
+    LDA entities+Entity::ypos, X 
+    CLC 
+    ADC #$08 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; we now have the y pos on the grid 
+    ; Index into 2d array: (y * width) + X 
+    ; Width = 16, so asl 4 times, add X to get index into array 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    STA temp2 ; store the y portion
+
+    CLC 
+    ADC temp ; add the x portion
+    TAY 
+    LDA CollisionMap, Y ; load the meta tile id
+    ASL 
+    TAY  
+    LDA MetaTileList, Y 
+    STA jumppointer
+    LDA MetaTileList+1, Y 
+    STA jumppointer+1
+    ; LDY #$04
+    ; LDA (jumppointer), Y 
+    ; RTS
+
+    ; ; work out the tile of the metatile the point we're checking is in 
+    LDY #$04 
+    LDA temp
+    ASL 
+    ASL 
+    ASL 
+    ASL ; X16 to return it to world scale 
+    STA temp 
+    LDA entities+Entity::xpos, X 
+    SEC 
+    SBC temp ; get difference between two 
+    CMP #$08
+    BCS :+
+    TYA 
+    CLC 
+    ADC #$01 
+    TYA 
+    :
+    LDA entities+Entity::ypos, X 
+    SEC 
+    SBC temp2
+    CMP #$08 
+    BCS :+
+    TYA 
+    CLC 
+    ADC #$02 
+    TAY 
+    :
+    LDA (jumppointer), Y
+    ORA rectangle1
+
+    RTS 
+
 CollideDown:
     LDA entities+Entity::xpos, X
     CLC 
@@ -2276,15 +2977,17 @@ CollideDown:
     LSR 
     LSR 
     LSR 
+    ; AND #%00011111 ; mask any bits over 16 
     STA temp
 
     LDA entities+Entity::ypos, X
     CLC 
-    ADC #$08
+    ADC #$07
     LSR 
     LSR 
     LSR 
     LSR 
+    ; AND #%00011111 
 
     ASL 
     ASL 
@@ -2325,6 +3028,154 @@ CollideDown:
     LDA CollisionMap, Y 
     ORA temp2
     RTS
+
+CollideUp2:
+    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$01 ; move 1 pixel in fromthe centre 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; divide by 16
+    ; AND #%00011111 ; mask bits over 16
+    STA temp
+
+    ; Do the same for Y pos 
+    LDA entities+Entity::ypos, X 
+    SEC 
+    SBC #$01 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; we now have the y pos on the grid 
+    ; Index into 2d array: (y * width) + X 
+    ; Width = 16, so asl 4 times, add X to get index into array 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
+
+    STA temp2 ; store the y portion
+
+    CLC 
+    ADC temp ; add the x portion
+    TAY 
+    LDA CollisionMap, Y ; load the meta tile id
+    ASL 
+    TAY  
+    LDA MetaTileList, Y 
+    STA jumppointer
+    LDA MetaTileList+1, Y 
+    STA jumppointer+1
+    ; LDY #$04
+    ; LDA (jumppointer), Y 
+    ; RTS
+
+    ; ; work out the tile of the metatile the point we're checking is in 
+    LDY #$04 
+    LDA temp
+    ASL 
+    ASL 
+    ASL 
+    ASL ; X16 to return it to world scale 
+    STA temp  
+    SEC 
+    SBC entities+Entity::xpos, X ; get difference between two 
+    CMP #$08
+    BCS :+
+    TYA 
+    CLC 
+    ADC #$01 
+    TAY
+    :
+    LDA temp2  
+    SEC 
+    SBC entities+Entity::ypos, X 
+    CMP #$08 
+    BCS :+
+    TYA 
+    CLC 
+    ADC #$02 
+    TAY 
+    :
+    LDA (jumppointer), Y
+    STA rectangle1
+
+    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
+    ; LDA entities+Entity::xpos, X 
+    ; CLC 
+    ; ADC #$06 ; move 1 pixel in fromthe centre 
+    ; LSR 
+    ; LSR 
+    ; LSR 
+    ; LSR ; divide by 16
+    ; ; AND #%00011111 ; mask bits over 16
+    ; STA temp
+
+    ; ; Do the same for Y pos 
+    ; LDA entities+Entity::ypos, X 
+    ; SEC 
+    ; SBC #$01 
+    ; LSR 
+    ; LSR 
+    ; LSR 
+    ; LSR ; we now have the y pos on the grid 
+    ; ; Index into 2d array: (y * width) + X 
+    ; ; Width = 16, so asl 4 times, add X to get index into array 
+    ; ASL 
+    ; ASL 
+    ; ASL 
+    ; ASL 
+
+    ; STA temp2 ; store the y portion
+
+    ; CLC 
+    ; ADC temp ; add the x portion
+    ; TAY 
+    ; LDA CollisionMap, Y ; load the meta tile id
+    ; ASL 
+    ; TAY  
+    ; LDA MetaTileList, Y 
+    ; STA jumppointer
+    ; LDA MetaTileList+1, Y 
+    ; STA jumppointer+1
+    ; ; LDY #$04
+    ; ; LDA (jumppointer), Y 
+    ; ; RTS
+
+    ; ; ; work out the tile of the metatile the point we're checking is in 
+    ; LDY #$04 
+    ; LDA temp
+    ; ASL 
+    ; ASL 
+    ; ASL 
+    ; ASL ; X16 to return it to world scale 
+    ; STA temp  
+    ; SEC 
+    ; SBC entities+Entity::xpos, X ; get difference between two 
+    ; CMP #$08
+    ; BCS :+
+    ; TYA 
+    ; CLC 
+    ; ADC #$01 
+    ; TYA 
+    ; :
+    ; LDA temp2 
+    ; SEC 
+    ; SBC entities+Entity::ypos, X 
+    ; CMP #$08 
+    ; BCC :+
+    ; TYA 
+    ; CLC 
+    ; ADC #$02 
+    ; TAY 
+    ; :
+    ; LDA (jumppointer), Y
+    ; ORA rectangle1
+
+    RTS 
+
 
 CollideUp:
     LDA entities+Entity::xpos, X
@@ -2765,7 +3616,50 @@ DrawFireball:
     :
     JMP DrawSpriteInit
 
+DrawRespawner:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListRespawner, Y 
+    STA jumppointer
+    LDA MetaSpriteListRespawner+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
 
+DrawBroomStick:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListBroomStick, Y 
+    STA jumppointer
+    LDA MetaSpriteListBroomStick+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
+
+DrawPortal:
+    LDA entities+Entity::animationframe, X 
+    ASL 
+    TAY 
+    LDA MetaSpriteListPortal, Y 
+    STA jumppointer
+    LDA MetaSpriteListPortal+1, Y
+    STA jumppointer+1
+    LDA (jumppointer), Y 
+    CMP #$FF
+    BNE :+
+    JMP CheckEndSpriteDraw
+    :
+    JMP DrawSpriteInit
 
 ;;;;;;;;
 ;; DEATH FUNCTIONS
@@ -2781,7 +3675,37 @@ RespawnPlayer:
     PLA 
     PLA 
     PLA
-
+    LDY #$50
+    LDX #$50 
+    LDA EntityType::Player
+    JSR SpawnEntity
+    JMP ProcessDestructionStack
+RespawnPlayer2:
+    PLA 
+    PLA 
+    PLA
+    LDY #$50
+    LDX #$50 
+    LDA EntityType::Player
+    JSR SpawnEntity
+    JMP ProcessDestructionStack
+RespawnPlayer3:
+    PLA 
+    PLA 
+    PLA
+    LDY #$50
+    LDX #$50 
+    LDA EntityType::Player
+    JSR SpawnEntity
+    JMP ProcessDestructionStack
+RespawnPlayer4:
+    PLA 
+    PLA 
+    PLA
+    LDY #$50
+    LDX #$50 
+    LDA EntityType::Player
+    JSR SpawnEntity
     JMP ProcessDestructionStack
 DeathExplosion:
     PLA 
@@ -2831,221 +3755,250 @@ ExplodeAndRespawn:
 ; The 5th byte is the collision for the block. 0=no collide 1 = collide
 brick:
     .byte $00,$01,$10,$11 ; chr rom reference bytes
-    .byte $00 ; collision byte
+    .byte $00,$00,$00,$00 ; collision bytes 
 brick_hole:
     .byte $02,$03,$12,$13
-    .byte $00
+    .byte $00,$00,$00,$00
 brick_dark_left:
     .byte $04,$05,$14,$15
-    .byte $00
+    .byte $00,$00,$00,$00
 brick_dark_right:
     .byte $06,$07
     .byte $16,$17
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 brick_bright_left:
     .byte $08,$09
-    .byte $18,$19
-    .byte $00 
+    .byte $18,$19    
+    .byte $00,$00
+    .byte $00,$00
+
 brick_bright_right:
     .byte $0A,$0B
     .byte $1A,$1B
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 earth:
     .byte $20,$21
     .byte $30,$31
-    .byte $01
+    .byte $01,$01
+    .byte $01,$01
 earth_top:
     .byte $22,$23
     .byte $32,$33
-    .byte $01
+    .byte $01,$01
+    .byte $01,$01
 arch_tl:
     .byte $0C,$0D
     .byte $1C,$1D
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 arch_tr:
     .byte $0E,$0F
     .byte $1E,$1F
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 arch_bl:
     .byte $2C,$2D
     .byte $3C,$3D
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 arch_br:    
     .byte $2E,$2F
     .byte $3E,$3F
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 moon_tl:
     .byte $40,$41
     .byte $50,$51
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 moon_tr:
     .byte $42,$43
     .byte $52,$53
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 moon_bl:
     .byte $60,$61
     .byte $70,$71
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 moon_br:
     .byte $62,$63
     .byte $72,$73
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 crack_v:
-    .byte $44
-    .byte $45
-    .byte $54
-    .byte $55
-    .byte $00
+    .byte $44,$45
+    .byte $54,$55
+    .byte $00,$00
+    .byte $00,$00
 crack_h:
-    .byte $64
-    .byte $65 
-    .byte $74
-    .byte $75
-    .byte $00
+    .byte $64,$65 
+    .byte $74,$75
+    .byte $00,$00
+    .byte $00,$00
 crack:
-    .byte $46
-    .byte $47
-    .byte $56
-    .byte $57
-    .byte $00
+    .byte $46,$47
+    .byte $56,$57
+    .byte $00,$00
+    .byte $00,$00
 brick_lip_l:
-    .byte $28
-    .byte $29
-    .byte $00
-    .byte $01
-    .byte $00
+    .byte $28,$29
+    .byte $00,$01
+    .byte $00,$00
+    .byte $00,$00
 brick_lip_r:
-    .byte $2A
-    .byte $2B 
-    .byte $10
-    .byte $11
-    .byte $00
+    .byte $2A,$2B 
+    .byte $10,$11
+    .byte $00,$00
+    .byte $00,$00
 brick_bulge_l:
-    .byte $28
-    .byte $29
-    .byte $38
-    .byte $39
-    .byte $00
+    .byte $28,$29
+    .byte $38,$39
+    .byte $00,$00
+    .byte $00,$00
 brick_bulge_r:
-    .byte $2A
-    .byte $2B
-    .BYTE $3A 
-    .BYTE $3B
-    .byte $00
+    .byte $2A,$2B
+    .BYTE $3A,$3B
+    .byte $00,$00
+    .byte $00,$00
 water_l:
-    .byte $4C
-    .byte $4D
-    .BYTE $5C 
-    .BYTE $5D
-    .byte $01
+    .byte $4C,$4D
+    .BYTE $5C,$5D
+    .byte $01,$01
+    .byte $01,$01
  water_r:
-    .byte $4E
-    .byte $4F
-    .BYTE $5E 
-    .BYTE $5F
-    .byte $01 
+    .byte $4E,$4F
+    .BYTE $5E,$5F
+    .byte $01,$01
+    .byte $01,$01 
 window_l:
-    .byte $6C
-    .byte $6D
-    .BYTE $7C 
-    .BYTE $7D
-    .byte $00    
+    .byte $6C,$6D
+    .BYTE $7C,$7D
+    .byte $00,$00
+    .byte $00,$00    
 window_r:
-    .byte $6E
-    .byte $6F
-    .BYTE $7E 
-    .BYTE $7F 
-    .byte $00
+    .byte $6E,$6F
+    .BYTE $7E,$7F 
+    .byte $00,$00
+    .byte $00,$00
 bars_l:
-    .byte $8C
-    .byte $8D
-    .BYTE $9C 
-    .BYTE $9D
-    .byte $00
+    .byte $8C,$8D
+    .BYTE $9C,$9D
+    .byte $00,$00
+    .byte $00,$00
 bars_r:
     .byte $8E,$8F
     .BYTE $9E,$9F
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 floor:
     .byte $8A,$8B
     .byte $9A,$9B
-    .byte $01     
+    .byte $01,$01
+    .byte $01,$01     
 floor_no_collide:
     .byte $88,$89 
     .byte $98,$99 
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 floor_l:
     .byte $68,$69
     .byte $78,$79
-    .byte $01
+    .byte $01,$01
+    .byte $01,$01
 floor_r:
     .byte $6A,$6B
     .byte $7A,$7B
-    .byte $01
+    .byte $01,$01
+    .byte $01,$01
 floor_corner_l:
     .byte $A8,$A9 
     .byte $B8,$B9
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01 
 floor_corner_r:
     .byte $AA,$AB 
     .byte $BA,$BB
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01 
 floor_side_l:
     .byte $C8,$C9 
     .byte $D8,$D9 
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01
 floor_side_r:
     .byte $CA,$CB 
     .byte $DA,$DB
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01
 floor_corner_bot_l:
     .byte $E8,$E9 
     .byte $F8,$F9
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01
 floor_corner_bot_r:
     .byte $EA,$EB 
     .byte $FA,$FB
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01 
 floor_corner_bot_mid:
     .byte $E9,$EA 
     .byte $F9,$FA
-    .byte $01 
+    .byte $01,$01
+    .byte $01,$01 
 floor_corner_bot:
     .byte $E6,$E7 
     .byte $F6,$F7
-    .byte $01  
+    .byte $01,$01
+    .byte $01,$01  
 candles:
     .BYTE $A6,$A7 
     .byte $B6,$B7
-    .byte $00 
+    .byte $00,$00
+    .byte $00,$00 
 brazier:
     .BYTE $A4,$A5 
     .byte $B4,$B5
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 pal1:
     .byte $EE,$EE
     .byte $EE,$EE
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 pal2:
     .byte $EF,$EF
     .byte $EF,$EF
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 pal3:
     .byte $FE,$FE
     .byte $FE,$FE
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 pal4:
     .byte $FF,$FF
     .byte $FF,$FF
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 brick_divided:
     .byte $26, $27 
     .byte $36, $37
-    .byte $00
+    .byte $00,$00
+    .byte $00,$00
 floor_middle:
     .byte $A9,$AA
     .byte $B9,$BA
-    .byte $01
+    .byte $01,$01
+    .byte $01,$01
+floor_half:
+    .byte $00,$01
+    .byte $68,$69
+    .byte $00,$00
+    .byte $01,$01
+
 MetaTileList:
     .word brick ;00
     .word brick_hole ;01
@@ -3096,6 +4049,7 @@ MetaTileList:
     .word pal4 ;2e
     .word brick_divided ; 2f
     .word floor_middle ; 30
+    .word floor_half ; 31
 
 PaletteData:
     .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$16,$07,$27, $0F,$05,$15,$30  ;background palette data  
@@ -3121,18 +4075,19 @@ ScreenDefault: ; the  format of a screen is that each byte represents 1 meta til
 
 ScreenDefault2:
     .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
-    .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$0,$00,$00,$00,$00,$23
+    .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$00,$00,$00,$00,$00,$23
     .byte $24,$11,$21,$30,$30,$22,$11,$0E,$0F,$15,$21,$22,$1C,$21,$22,$23
     .byte $24,$00,$04,$05,$04,$05,$00,$10,$01,$00,$04,$05,$00,$04,$05,$23
     .byte $24,$00,$04,$05,$00,$00,$1D,$1B,$1D,$19,$1A,$21,$22,$19,$1A,$23
     .byte $24,$00,$04,$05,$00,$08,$09,$00,$05,$02,$00,$02,$10,$02,$00,$23
     .byte $29,$00,$04,$05,$00,$0A,$0B,$00,$00,$02,$00,$02,$00,$02,$00,$29
-    .byte $24,$00,$21,$22,$00,$22,$21,$00,$10,$21,$1F,$20,$00,$00,$21,$23
+    .byte $24,$00,$21,$22,$00,$22,$21,$00,$10,$21,$1F,$20,$00,$00,$31,$23
     .byte $24,$12,$23,$24,$02,$00,$00,$04,$05,$00,$00,$02,$00,$00,$00,$23
     .byte $29,$12,$25,$26,$02,$00,$03,$04,$05,$02,$00,$02,$00,$1D,$30,$23
     .byte $24,$10,$08,$09,$02,$00,$03,$04,$05,$02,$00,$02,$00,$10,$05,$23
     .byte $24,$00,$0A,$0B,$02,$00,$03,$19,$1A,$02,$00,$19,$1A,$00,$00,$23
-    .byte $24,$00,$1F,$20,$00,$00,$1F,$20,$1F,$20,$00,$00,$1F,$20,$00,$23
+    .byte $31,$31,$00,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31
+    ; .byte $24,$00,$1F,$20,$31,$31,$1F,$20,$1F,$20,$00,$00,$1F,$20,$00,$23
     .byte $29,$2F,$04,$04,$05,$2F,$05,$05,$04,$04,$2F,$2F,$05,$04,$2F,$29
     .byte $07,$1D,$1E,$1E,$1D,$1D,$1E,$1E,$1E,$1E,$1D,$1D,$1E,$1E,$1D,$07
 
@@ -3153,9 +4108,9 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
 DestroyEntityList: ; defines behaviours for when an entity is destroyed
     .word NoDeathAction ; 0 
     .word RespawnPlayer ; 1
-    .word RespawnPlayer ; 2
-    .word RespawnPlayer ; 3
-    .word RespawnPlayer ; 4
+    .word RespawnPlayer2 ; 2
+    .word RespawnPlayer3 ; 3
+    .word RespawnPlayer4 ; 4
     .word DeathExplosion ; 5
     .word NoDeathAction ; 6
     .word NoDeathAction ; 7
@@ -3163,6 +4118,22 @@ DestroyEntityList: ; defines behaviours for when an entity is destroyed
     .word NoDeathAction ; 9
     .word NoDeathAction ; 10
     .word NoDeathAction ; 11
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
+    .word NoDeathAction
 
 
 ProcessEntityList: ; Jump table for processing entities
@@ -3178,6 +4149,9 @@ ProcessEntityList: ; Jump table for processing entities
     .word ProcessSparks 
     .word ProcessLightning 
     .word ProcessFireball
+    .word ProcessRespawner
+    .word ProcessPortal
+    .word ProcessBroomStick
 
 DrawSpriteList: ; this is a list of sprite definitions
     .word SkipDraw
@@ -3192,6 +4166,9 @@ DrawSpriteList: ; this is a list of sprite definitions
     .word DrawSparks
     .word DrawLightning
     .word DrawFireball
+    .word DrawRespawner
+    .word DrawPortal 
+    .word DrawBroomStick
 
 MetaSpriteListPlayer:
     .word PlayerSprite1
@@ -3266,6 +4243,19 @@ MetaSpriteListLightning:
 
 MetaSpriteListFireball:
     .word FireballSprite1
+
+MetaSpriteListRespawner:
+    .word RespawnerSprite1
+    .word RespawnerSprite2 
+
+MetaSpriteListPortal:
+    .word PortalSprite1 
+    .word PortalSprite2
+    .word PortalSprite3 
+    .word PortalSprite4
+
+MetaSpriteListBroomStick:
+    .word BroomStickSprite
 
 PlayerSprite1:
     .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
@@ -3430,8 +4420,77 @@ FireballSprite1:
     .byte $00,$40,$00,$00
     .byte $FF
 
+RespawnerSprite1:
+    .byte $00,$E0,$00,$00
+    .byte $00,$E1,$00,$08
+    .byte $08,$F0,$00,$00
+    .byte $08,$F1,$00,$08
+    .byte $FF
+
+RespawnerSprite2:
+    .byte $00,$E2,$00,$00
+    .byte $00,$E3,$00,$08
+    .byte $08,$F2,$00,$00
+    .byte $08,$F3,$00,$08
+    .byte $FF
+
+PortalSprite1:
+    .byte $04,$B2,$00,$04
+    .byte $FF 
+
+PortalSprite2:
+    .byte $00,$A0,$00,$00
+    .byte $00,$A1,$00,$08
+    .byte $08,$B0,$00,$00
+    .byte $08,$B1,$00,$08
+    .byte $FF
+
+PortalSprite3:
+    .byte $00,$C0,$00,$00
+    .byte $00,$C1,$00,$08
+    .byte $08,$D0,$00,$00
+    .byte $08,$D1,$00,$08
+    .byte $FF
+
+PortalSprite4:
+    .byte $00,$C2,$00,$00
+    .byte $00,$C3,$00,$08
+    .byte $08,$D2,$00,$00
+    .byte $08,$D3,$00,$08
+    .byte $FF
+
+BroomStickSprite:
+    .byte $00,$52,$00,$00
+    .byte $00,$53,$00,$08
+    .byte $00,$54,$00,$0F
+    .byte $FF
+
+;; Animation Strings 
+AnimationPortalExpand:
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
+    .byte $FF 
+
+AnimationPortalWait:
+    .byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
+    .byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
+    .byte $FF
+
+AnimationPortalContract:
+    .byte $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $FF 
+
+
 JumpStrength:
     .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$00,$00,$00,$01
+SpawnerSpeedRamp:
+    .byte $01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$FF
+
 
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 
     .word NMI           ; If you look at someone elses stuff they probably call this vblank or something

@@ -409,8 +409,8 @@ STA $A000
     JSR LoadSingleScreen
 
 
-LDY #$50
-LDX #$50
+LDY #$78
+LDX #$40
 LDA #EntityType::Player
 JSR SpawnEntity
 
@@ -419,6 +419,30 @@ LDX #$50
 LDA #EntityType::Slider
 JSR SpawnEntity
 
+LDY #$20
+LDX #$80
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$50
+LDX #$60
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$20
+LDX #$20
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$20
+LDX #$90
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDY #$80
+LDX #$50
+LDA #EntityType::Slider
+JSR SpawnEntity
 ; LDY #$1wnEntity
 
 
@@ -922,7 +946,7 @@ PlayerOnFloor:
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
-    CMP #ButtonReturn::NoPress
+    CMP #ButtonReturn::Press
     BNE :+
         JSR PlayerAttemptSpawnFireball
     :
@@ -938,102 +962,120 @@ PlayerOnFloor:
     EOR #$01 
     STA entities+Entity::animationframe, X
     : 
-    ; Check if we're on the floor
-    JSR CollideDown2
-    BNE :+
-    LDA #$03 
-    STA playerstate
-    STA entities+Entity::animationframe, X
-    JMP EntityComplete
+    ; Move down and eject from floor
+    ; INC entities+Entity::ypos, X
+    LDA vylow
+    CLC 
+    ADC #$0B
+    STA vylow
+    LDA vyhigh
+    ADC $00
+    CMP #$02
+    BCC :+
+    LDA #$02 
     :
-    ;Check Right Collision
-    JSR CheckRight
-    BEQ :+
-        JSR CollideRight2
+    STA vyhigh
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    JSR CollideDown2
+    BEQ :+ ; dontallow jumping if we didnt collide this frame
+        ;If we collide down, 0 velocity
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+    ; Check for jump
+        JSR CheckA
+        CMP #ButtonReturn::Release
         BNE :+
-            LDA #$01
-            CLC 
-            ADC entities+Entity::xpos,X
-            STA entities+Entity::xpos,X
-            LDA #%01000000
-            EOR entities+Entity::attributes, X 
-            STA entities+Entity::attributes, X
+            LDA #$02
+            STA playerstate
+            ; LDA #$FE
+            ; STA vyhigh
+            LDA #$00
+            ; STA vylow
+            STA entities+Entity::generalpurpose, X
+            LDA #$04
+            STA entities+Entity::animationframe, X
+        
+    :
+
+    ; check if right is pressed
+    JSR CheckRight
+    ; move right if pressed
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
     :
 
     ;Check Left Cl
     JSR CheckLeft
-    BEQ :+
-        JSR CollideLeft2
-        BNE :+
-            LDA #$FF 
-            CLC 
-            ADC entities+Entity::xpos,X
-            STA entities+Entity::xpos, X
-            LDA #%01000000
-            EOR entities+Entity::attributes, X 
-            STA entities+Entity::attributes, X
-    :
-    ; Check for jump
-    JSR CheckA
-    CMP #ButtonReturn::Release
+    CMP #ButtonReturn::Press
     BNE :+
-        LDA #$02
-        STA playerstate
-        LDA #$FE
-        STA vyhigh
-        LDA #$00
-        STA vylow
-        STA entities+Entity::generalpurpose, X
-        LDA #$04
-        STA entities+Entity::animationframe, X
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
     :
     JMP EntityComplete 
 PlayerJumping:
+    ; DEC entities+Entity::ypos, X
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
     CMP #ButtonReturn::Press
     BNE :+
-    TXA 
-    PHA 
-    LDA entities+Entity::attributes, X 
-    STA temp 
-    LDA entities+Entity::ypos, X 
-    TAY 
-    LDA entities+Entity::xpos, X 
-    CLC 
-    ADC $08
-    TAX 
-    LDA #EntityType::Fireball
-    JSR SpawnEntity
-    PLA 
-    TAX  
+        JSR PlayerAttemptSpawnFireball  
     :
 
     ; JSR  CheckA
     LDA #$01
     STA entities+Entity::animationframe, X
+    ; check if right is pressed
     JSR CheckRight
-    BEQ :+
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
         JSR CollideRight2
-        BNE :+
-            LDA #$01
-            CLC 
-            ADC entities+Entity::xpos,X
-            STA entities+Entity::xpos,X
     :
+
+    ;Check Left Cl
     JSR CheckLeft
-    BEQ :+
-        JSR CollideRight2
-        BNE :+
-            LDA #$FF 
-            CLC 
-            ADC entities+Entity::xpos,X
-            STA entities+Entity::xpos, X
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
     :
+    ;eject from cieling 
     JSR CollideUp2
     BEQ :+
-    LDA #$03 
+    LDA #$01
     STA playerstate
     JMP EntityComplete
     :
@@ -1041,7 +1083,7 @@ PlayerJumping:
     LDA JumpStrength, Y 
     CMP #$01 ; iF 01 we've reached the end of the dataset
     BNE :+
-    LDA #$03 
+    LDA #$01 
     STA playerstate 
     JMP EntityComplete
     :
@@ -1087,20 +1129,21 @@ PlayerFalling:
         STA entities+Entity::animationframe, X 
         JMP EntityComplete
     :    
-    LDA vylow
-    CLC 
-    ADC #$10
-    STA vylow
-    LDA vyhigh
-    ADC $00
-    CMP #$02
-    BCC :+
-    LDA #$02 
-    :
-    STA vyhigh
-    CLC 
-    ADC entities+Entity::ypos, X
-    STA entities+Entity::ypos, X
+    ; LDA vylow
+    ; CLC 
+    ; ADC #$10
+    ; STA vylow
+    ; LDA vyhigh
+    ; ADC $00
+    ; CMP #$02
+    ; BCC :+
+    ; LDA #$02 
+    ; :
+    ; STA vyhigh
+    ; CLC 
+    ; ADC entities+Entity::ypos, X
+    ; STA entities+Entity::ypos, X
+    INC entities+Entity::ypos, X
     JMP EntityComplete
 PlayerDisabled:
     JMP EntityComplete
@@ -1326,6 +1369,7 @@ SliderInit:
     JMP EntityComplete
 
 SliderRight: 
+    ; Animate
     DEC entities+Entity::animationtimer, X 
     BNE :+
     LDA #$01
@@ -1334,6 +1378,8 @@ SliderRight:
     LDA #$0A 
     STA entities+ Entity::animationtimer, X
     :
+    ; Move 
+    INC entities+Entity::xpos, X
     JSR CollideRight2
     BEQ :+ 
     LDA #$02
@@ -1342,14 +1388,12 @@ SliderRight:
     EOR #%01000000
     STA entities+Entity::attributes, X 
     JMP EntityComplete
-    :
-    INC entities+Entity::xpos, X 
+    : 
+    INC entities+Entity::ypos, X
     JSR CollideDown2
-    BNE :+
-    INC entities+Entity::ypos, X 
-    :
     JMP EntityComplete
 SliderLeft:
+    ;Animate 
     DEC entities+Entity::animationtimer, X 
     BNE :+
     LDA #$01
@@ -1358,6 +1402,7 @@ SliderLeft:
     LDA #$0A 
     STA entities+ Entity::animationtimer, X
     :
+    DEC entities+Entity::xpos, X
     JSR CollideLeft2
     BEQ :+ 
     LDA #$01
@@ -1366,12 +1411,12 @@ SliderLeft:
     EOR #%01000000
     STA entities+Entity::attributes, X 
     JMP EntityComplete
-    :
-    DEC entities+Entity::xpos, X 
+    : 
+    INC entities+Entity::ypos, X
     JSR CollideDown2
-    BNE :+
-    INC entities+Entity::ypos, X 
-    :
+    ; BNE :+
+    ; INC entities+Entity::ypos, X 
+    ; :
     JMP EntityComplete
 
 ExplosionInit:
@@ -2482,9 +2527,10 @@ InputSelectRelease:
 ; Collision
 ;;;;;;;;
 CollideLeft2:
+    LDA #$00
+    STA var_mem
+    CollideLeft2Loop:
     LDA entities+Entity::xpos, X ;4  
-    SEC ; 2
-    SBC #$01 ; 2
     LSR ;2
     LSR ;2
     LSR ;2
@@ -2525,95 +2571,92 @@ CollideLeft2:
     ASL ;2
     ASL ; X16 to return it to world scale 
     STA temp ;3  
+    LDA entities+Entity::xpos, X ;4/5
     SEC ; 2
-    SBC entities+Entity::xpos, X ;4/5 
+    SBC temp
     ; SBC temp ; get difference between two 
-    CMP #$08 ; 2
+    CMP #$09 ; 2
     BCC :+ ; 2/3
-    TYA ;2
-    CLC ;2
-    ADC #$01 ;2 
-    TAY ;2
+    INY
     :
     LDA temp2 ;3  
     SEC ;2
     SBC entities+Entity::ypos, X ; 4/5 
-    CMP #$08 ;2
+    CMP #$09 ;2
     BCC :+ ;2/3
-    TYA ;2
-    CLC ;2
-    ADC #$02 ;2 
-    TAY ;2
+    INY
+    INY
     :
     LDA (jumppointer), Y ;5/6
     STA rectangle1 ;3
 
     ; get collision of second point 
-    ; LDA entities+Entity::xpos, X 
-    ; SEC 
-    ; ADC #$01
-    ; LSR 
-    ; LSR 
-    ; LSR 
-    ; LSR
+    LDA entities+Entity::xpos, X 
+    LSR 
+    LSR 
+    LSR 
+    LSR
 
-    ; STA temp 
+    STA temp 
 
-    ; LDA entities+Entity::ypos, X
-    ; CLC 
-    ; ADC #$07
-    ; LSR 
-    ; LSR
-    ; LSR 
-    ; LSR 
+    LDA entities+Entity::ypos, X
+    CLC 
+    ADC #$07
+    LSR 
+    LSR
+    LSR 
+    LSR 
 
-    ; ASL 
-    ; ASL 
-    ; ASL 
-    ; ASL 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
 
-    ; STA temp2
+    STA temp2
 
-    ; CLC
-    ; ADC temp 
-    ; TAY 
-    ; LDA CollisionMap, Y
-    ; ASL 
-    ; TAY  
-    ; LDA MetaTileList, Y 
-    ; STA jumppointer 
-    ; LDA MetaTileList+1, Y 
-    ; STA jumppointer+1
+    CLC
+    ADC temp 
+    TAY 
+    LDA CollisionMap, Y
+    ASL 
+    TAY  
+    LDA MetaTileList, Y 
+    STA jumppointer 
+    LDA MetaTileList+1, Y 
+    STA jumppointer+1
 
-    ; LDY #$04 
-    ; LDA temp
-    ; ASL 
-    ; ASL 
-    ; ASL 
-    ; ASL ; X16 to return it to world scale 
-    ; STA temp 
-    ; SEC 
-    ; SBC entities+Entity::xpos, X 
-    ; ; SBC temp ; get difference between two 
-    ; CMP #$08
-    ; BCC :+
-    ; TYA 
-    ; CLC 
-    ; ADC #$01 
-    ; TAY
-    ; :
-    ; LDA temp2 
-    ; SEC 
-    ; SBC temp2
-    ; CMP #$08 
-    ; BCC :+
-    ; TYA 
-    ; CLC 
-    ; ADC #$02 
-    ; TAY 
-    ; :
-    ; LDA (jumppointer), Y 
-    ; ORA rectangle1
+    LDY #$04 
+    LDA temp
+    ASL 
+    ASL 
+    ASL 
+    ASL ; X16 to return it to world scale 
+    STA temp 
+    LDA entities+Entity::xpos, X
+    SEC 
+    SBC temp
+    ; SBC temp ; get difference between two 
+    CMP #$09
+    BCC :+
+    INY 
+    :
+    LDA temp2 
+    SEC 
+    SBC entities+Entity::ypos, X
+    CMP #$09
+    BCC :+
+    INY 
+    INY 
+    :
+    LDA (jumppointer), Y 
+    ORA rectangle1
+
+    BEQ :+
+        STA var_mem
+        INC entities+Entity::xpos, X 
+        JMP CollideLeft2Loop
+    :
+    LDA var_mem
     RTS 
 
 CollideLeft:
@@ -2666,6 +2709,11 @@ CollideLeft:
     RTS 
 
 CollideRight2:
+    LDA #$00
+    STA var_mem
+
+    CollideRight2Loop:
+
     LDA entities+Entity::xpos, X ;4  
     CLC ; 2
     ADC #$07 ; 2
@@ -2709,25 +2757,21 @@ CollideRight2:
     ASL ;2
     ASL ; X16 to return it to world scale 
     STA temp ;3  
+    LDA entities+Entity::xpos, X ;4/5
     SEC ; 2
-    SBC entities+Entity::xpos, X ;4/5 
+    SBC temp
     ; SBC temp ; get difference between two 
-    CMP #$08 ; 2
+    CMP #$09 ; 2
     BCC :+ ; 2/3
-    TYA ;2
-    CLC ;2
-    ADC #$01 ;2 
-    TAY ;2
+    INY
     :
     LDA temp2 ;3  
     SEC ;2
     SBC entities+Entity::ypos, X ; 4/5 
-    CMP #$08 ;2
+    CMP #$09 ;2
     BCC :+ ;2/3
-    TYA ;2
-    CLC ;2
-    ADC #$02 ;2 
-    TAY ;2
+    INY
+    INY
     :
     LDA (jumppointer), Y ;5/6
     STA rectangle1 ;3
@@ -2776,28 +2820,31 @@ CollideRight2:
     ASL 
     ASL ; X16 to return it to world scale 
     STA temp 
+    LDA entities+Entity::ypos, X
     SEC 
-    SBC entities+Entity::xpos, X 
+    SBC temp
     ; SBC temp ; get difference between two 
-    CMP #$08
+    CMP #$09
     BCC :+
-    TYA 
-    CLC 
-    ADC #$01 
-    TAY
+    INY 
     :
     LDA temp2 
     SEC 
     SBC entities+Entity::ypos, X
-    CMP #$08 
+    CMP #$09
     BCC :+
-    TYA 
-    CLC 
-    ADC #$02 
-    TAY 
+    INY 
+    INY 
     :
     LDA (jumppointer), Y 
     ORA rectangle1
+
+    BEQ :+
+        STA var_mem
+        DEC entities+Entity::xpos, X 
+        JMP CollideRight2Loop
+    :
+    LDA var_mem
     RTS 
 
 CollideRight: ; only to be called dfrom process entities
@@ -2850,10 +2897,12 @@ CollideRight: ; only to be called dfrom process entities
     RTS 
 
 CollideDown2:
+    LDA #$00
+    STA var_mem
+
+    CollideDown2Loop:
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
     LDA entities+Entity::xpos, X 
-    CLC 
-    ADC #$01 ; move 1 pixel in fromthe centre 
     LSR 
     LSR 
     LSR 
@@ -2864,7 +2913,7 @@ CollideDown2:
     ; Do the same for Y pos 
     LDA entities+Entity::ypos, X 
     CLC 
-    ADC #$08 
+    ADC #$07
     LSR 
     LSR 
     LSR 
@@ -2903,25 +2952,22 @@ CollideDown2:
     LDA entities+Entity::xpos, X 
     SEC 
     SBC temp ; get difference between two 
-    CMP #$08
-    BCS :+
-    TYA 
-    CLC 
-    ADC #$01 
-    TAY
+    CMP #$09
+    BCC :+
+    INY
     :
-    LDA entities+Entity::ypos, X 
+    LDA temp2
     SEC 
-    SBC temp2
-    CMP #$08 
-    BCS :+
-    TYA 
-    CLC 
-    ADC #$02 
-    TAY 
+    SBC entities+Entity::ypos, X 
+    CMP #$09 
+    BCC :+
+    INY 
+    INY
     :
     LDA (jumppointer), Y
     STA rectangle1
+
+
 
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
     LDA entities+Entity::xpos, X 
@@ -2937,7 +2983,7 @@ CollideDown2:
     ; Do the same for Y pos 
     LDA entities+Entity::ypos, X 
     CLC 
-    ADC #$08 
+    ADC #$07
     LSR 
     LSR 
     LSR 
@@ -2961,11 +3007,10 @@ CollideDown2:
     STA jumppointer
     LDA MetaTileList+1, Y 
     STA jumppointer+1
-    ; LDY #$04
-    ; LDA (jumppointer), Y 
-    ; RTS
+    LDY #$04
+    LDA (jumppointer), Y 
 
-    ; ; work out the tile of the metatile the point we're checking is in 
+    ; work out the tile of the metatile the point we're checking is in 
     LDY #$04 
     LDA temp
     ASL 
@@ -2976,26 +3021,27 @@ CollideDown2:
     LDA entities+Entity::xpos, X 
     SEC 
     SBC temp ; get difference between two 
-    CMP #$08
-    BCS :+
-    TYA 
-    CLC 
-    ADC #$01 
-    TYA 
+    CMP #$09
+    BCC :+
+    INY
     :
-    LDA entities+Entity::ypos, X 
+    LDA temp2
     SEC 
-    SBC temp2
-    CMP #$08 
-    BCS :+
-    TYA 
-    CLC 
-    ADC #$02 
-    TAY 
+    SBC entities+Entity::ypos, X
+    CMP #$09
+    BCC :+
+    INY
+    INY
     :
     LDA (jumppointer), Y
     ORA rectangle1
 
+    BEQ :+
+        STA var_mem
+        DEC entities+Entity::ypos, X 
+        JMP CollideDown2Loop
+    :
+    LDA var_mem
     RTS 
 
 CollideDown:
@@ -3060,9 +3106,7 @@ CollideDown:
 
 CollideUp2:
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
-    LDA entities+Entity::xpos, X 
-    CLC 
-    ADC #$01 ; move 1 pixel in fromthe centre 
+    LDA entities+Entity::xpos, X  
     LSR 
     LSR 
     LSR 
@@ -3071,9 +3115,7 @@ CollideUp2:
     STA temp
 
     ; Do the same for Y pos 
-    LDA entities+Entity::ypos, X 
-    SEC 
-    SBC #$01 
+    LDA entities+Entity::ypos, X
     LSR 
     LSR 
     LSR 
@@ -3109,24 +3151,20 @@ CollideUp2:
     ASL 
     ASL ; X16 to return it to world scale 
     STA temp  
+    LDA entities+Entity::xpos, X 
     SEC 
-    SBC entities+Entity::xpos, X ; get difference between two 
-    CMP #$08
+    SBC temp ; get difference between two 
+    CMP #$09
     BCC :+
-    TYA 
-    CLC 
-    ADC #$01 
-    TAY
+    INY
     :
     LDA temp2  
     SEC 
     SBC entities+Entity::ypos, X 
-    CMP #$08 
+    CMP #$09 
     BCC :+
-    TYA 
-    CLC 
-    ADC #$02 
-    TAY 
+    INY
+    INY 
     :
     LDA (jumppointer), Y
     STA rectangle1
@@ -4112,9 +4150,9 @@ ScreenDefault2:
     .byte $29,$00,$04,$05,$00,$0A,$0B,$00,$00,$02,$00,$02,$00,$02,$00,$29
     .byte $24,$00,$21,$22,$00,$22,$21,$00,$10,$21,$1F,$20,$00,$00,$31,$23
     .byte $24,$12,$23,$24,$02,$00,$00,$04,$05,$00,$00,$02,$00,$00,$00,$23
-    .byte $29,$12,$25,$26,$02,$00,$03,$04,$05,$02,$00,$02,$00,$1D,$30,$23
-    .byte $24,$10,$08,$09,$02,$00,$03,$04,$05,$02,$00,$02,$00,$10,$05,$23
-    .byte $24,$00,$0A,$0B,$02,$00,$03,$19,$1A,$02,$00,$19,$1A,$00,$00,$23
+    .byte $29,$12,$25,$26,$31,$00,$03,$04,$05,$02,$00,$31,$00,$1D,$30,$23
+    .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$31,$00,$02,$00,$10,$05,$23
+    .byte $24,$00,$0A,$0B,$02,$31,$03,$19,$1A,$02,$31,$19,$1A,$00,$00,$23
     .byte $31,$31,$00,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31
     ; .byte $24,$00,$1F,$20,$31,$31,$1F,$20,$1F,$20,$00,$00,$1F,$20,$00,$23
     .byte $29,$2F,$04,$04,$05,$2F,$05,$05,$04,$04,$2F,$2F,$05,$04,$2F,$29

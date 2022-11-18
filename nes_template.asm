@@ -410,7 +410,7 @@ STA $A000
 
 
 LDY #$78
-LDX #$40
+LDX #$D0
 LDA #EntityType::Player
 JSR SpawnEntity
 
@@ -841,7 +841,8 @@ PlayerStateMachine:
     .word PlayerInit
     .word PlayerOnFloor
     .word PlayerJumping
-    .word PlayerFalling
+    .word PlayerHeadbonk
+    .word PlayerJumpReleased
     .word PlayerDisabled
 
 Player2StateMachine:
@@ -986,18 +987,14 @@ PlayerOnFloor:
         STA vxlow
     ; Check for jump
         JSR CheckA
-        CMP #ButtonReturn::Release
-        BNE :+
+        CMP #ButtonReturn::Press
+        BEQ :+
             LDA #$02
             STA playerstate
-            ; LDA #$FE
-            ; STA vyhigh
             LDA #$00
-            ; STA vylow
             STA entities+Entity::generalpurpose, X
             LDA #$04
-            STA entities+Entity::animationframe, X
-        
+            STA entities+Entity::animationframe, X   
     :
 
     ; check if right is pressed
@@ -1010,7 +1007,7 @@ PlayerOnFloor:
         ADC entities+Entity::xpos,X
         STA entities+Entity::xpos,X
         LDA entities+Entity::attributes, X
-        AND #%01000000 
+        AND #%00000000 
         STA entities+Entity::attributes, X
         ; Eject from wall
         JSR CollideRight2
@@ -1031,7 +1028,6 @@ PlayerOnFloor:
     :
     JMP EntityComplete 
 PlayerJumping:
-    ; DEC entities+Entity::ypos, X
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
@@ -1039,8 +1035,6 @@ PlayerJumping:
     BNE :+
         JSR PlayerAttemptSpawnFireball  
     :
-
-    ; JSR  CheckA
     LDA #$01
     STA entities+Entity::animationframe, X
     ; check if right is pressed
@@ -1073,78 +1067,137 @@ PlayerJumping:
         JSR CollideLeft2
     :
     ;eject from cieling 
-    JSR CollideUp2
-    BEQ :+
-    LDA #$01
-    STA playerstate
-    JMP EntityComplete
-    :
+    JSR CheckA
+    CMP #ButtonReturn::Release
+    BNE :+
+        LDA #$04
+        STA playerstate
     LDY entities+Entity::generalpurpose, X 
     LDA JumpStrength, Y 
     CMP #$01 ; iF 01 we've reached the end of the dataset
-    BNE :+
-    LDA #$01 
-    STA playerstate 
+    BNE :+ 
+    STA playerstate ;1 is terminating so we can feed that back into the state
     JMP EntityComplete
     :
     CLC 
     ADC entities+Entity::ypos, X 
     STA entities+Entity::ypos, X
-    INC entities+Entity::generalpurpose, X 
+    INC entities+Entity::generalpurpose, X
+    JSR CollideUp2
+    BEQ :+
+    LDA #$03 ; enter headbonk state
+    STA playerstate
+    : 
     JMP EntityComplete
-PlayerFalling:
+PlayerHeadbonk:
+
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
-    CMP #ButtonReturn::NoPress
+    CMP #ButtonReturn::Press
     BNE :+
-        JSR PlayerAttemptSpawnFireball
+        JSR PlayerAttemptSpawnFireball  
     :
-    LDA #$00 
+    LDA #$01
     STA entities+Entity::animationframe, X
+    ; check if right is pressed
     JSR CheckRight
-    BEQ PlayerFallingNoRightInput
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
         JSR CollideRight2
-        BNE :+
-            LDA #$01
-            CLC 
-            ADC entities+Entity::xpos,X
-            STA entities+Entity::xpos,X
-        :
-    PlayerFallingNoRightInput:
+    :
+
+    ;Check Left Cl
     JSR CheckLeft
-    BEQ PlayerFallingNoLeftInput
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
         JSR CollideLeft2
-        BNE :+
-            LDA #$FF 
-            CLC 
-            ADC entities+Entity::xpos,X
-            STA entities+Entity::xpos, X
-        :
-    PlayerFallingNoLeftInput:
-    JSR CollideDown2
-    BEQ :+
-        LDA #$01 
-        STA playerstate
-        STA entities+Entity::animationframe, X 
-        JMP EntityComplete
-    :    
-    ; LDA vylow
-    ; CLC 
-    ; ADC #$10
-    ; STA vylow
-    ; LDA vyhigh
-    ; ADC $00
-    ; CMP #$02
-    ; BCC :+
-    ; LDA #$02 
-    ; :
-    ; STA vyhigh
-    ; CLC 
-    ; ADC entities+Entity::ypos, X
-    ; STA entities+Entity::ypos, X
-    INC entities+Entity::ypos, X
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA HeadbonkStrength, Y 
+    CMP #$01
+    BNE :+
+    STA playerstate
     JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+PlayerJumpReleased:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRight
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeft
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrengthReleased, Y 
+    CMP #$01
+    BNE :+
+    STA playerstate
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
 PlayerDisabled:
     JMP EntityComplete
 PlayerIdle:
@@ -3105,6 +3158,9 @@ CollideDown:
     RTS
 
 CollideUp2:
+    LDA #$00
+    STA var_mem
+    CollideUp2Loop:
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
     LDA entities+Entity::xpos, X  
     LSR 
@@ -3170,77 +3226,77 @@ CollideUp2:
     STA rectangle1
 
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
-    ; LDA entities+Entity::xpos, X 
-    ; CLC 
-    ; ADC #$06 ; move 1 pixel in fromthe centre 
-    ; LSR 
-    ; LSR 
-    ; LSR 
-    ; LSR ; divide by 16
-    ; ; AND #%00011111 ; mask bits over 16
-    ; STA temp
+    LDA entities+Entity::xpos, X 
+    CLC 
+    ADC #$07 ; move 1 pixel in fromthe centre 
+    LSR 
+    LSR 
+    LSR 
+    LSR ; divide by 16
+    ; AND #%00011111 ; mask bits over 16
+    STA temp
 
-    ; ; Do the same for Y pos 
-    ; LDA entities+Entity::ypos, X 
-    ; SEC 
-    ; SBC #$01 
-    ; LSR 
-    ; LSR 
-    ; LSR 
-    ; LSR ; we now have the y pos on the grid 
-    ; ; Index into 2d array: (y * width) + X 
-    ; ; Width = 16, so asl 4 times, add X to get index into array 
-    ; ASL 
-    ; ASL 
-    ; ASL 
-    ; ASL 
+    ; Do the same for Y pos 
+    LDA entities+Entity::ypos, X  
+    LSR 
+    LSR 
+    LSR 
+    LSR ; we now have the y pos on the grid 
+    ; Index into 2d array: (y * width) + X 
+    ; Width = 16, so asl 4 times, add X to get index into array 
+    ASL 
+    ASL 
+    ASL 
+    ASL 
 
-    ; STA temp2 ; store the y portion
+    STA temp2 ; store the y portion
 
-    ; CLC 
-    ; ADC temp ; add the x portion
-    ; TAY 
-    ; LDA CollisionMap, Y ; load the meta tile id
-    ; ASL 
-    ; TAY  
-    ; LDA MetaTileList, Y 
-    ; STA jumppointer
-    ; LDA MetaTileList+1, Y 
-    ; STA jumppointer+1
-    ; ; LDY #$04
-    ; ; LDA (jumppointer), Y 
-    ; ; RTS
+    CLC 
+    ADC temp ; add the x portion
+    TAY 
+    LDA CollisionMap, Y ; load the meta tile id
+    ASL 
+    TAY  
+    LDA MetaTileList, Y 
+    STA jumppointer
+    LDA MetaTileList+1, Y 
+    STA jumppointer+1
+    ; LDY #$04
+    ; LDA (jumppointer), Y 
+    ; RTS
 
-    ; ; ; work out the tile of the metatile the point we're checking is in 
-    ; LDY #$04 
-    ; LDA temp
-    ; ASL 
-    ; ASL 
-    ; ASL 
-    ; ASL ; X16 to return it to world scale 
-    ; STA temp  
-    ; SEC 
-    ; SBC entities+Entity::xpos, X ; get difference between two 
-    ; CMP #$08
-    ; BCS :+
-    ; TYA 
-    ; CLC 
-    ; ADC #$01 
-    ; TYA 
-    ; :
-    ; LDA temp2 
-    ; SEC 
-    ; SBC entities+Entity::ypos, X 
-    ; CMP #$08 
-    ; BCC :+
-    ; TYA 
-    ; CLC 
-    ; ADC #$02 
-    ; TAY 
-    ; :
-    ; LDA (jumppointer), Y
-    ; ORA rectangle1
-
+    ; ; work out the tile of the metatile the point we're checking is in 
+    LDY #$04 
+    LDA temp
+    ASL 
+    ASL 
+    ASL 
+    ASL ; X16 to return it to world scale 
+    STA temp
+    LDA entities+Entity::xpos, X  
+    SEC 
+    SBC temp ; get difference between two 
+    CMP #$09
+    BCS :+
+    INY
+    :
+    LDA temp2 
+    SEC 
+    SBC entities+Entity::ypos, X 
+    CMP #$09 
+    BCC :+
+    INY 
+    INY 
+    :
+    LDA (jumppointer), Y
+    ORA rectangle1
+    
+    BEQ :+ 
+        STA var_mem 
+        INC entities+Entity::ypos, X 
+        JMP CollideUp2Loop
+    :
+    LDA var_mem
     RTS 
 
 
@@ -4153,7 +4209,7 @@ ScreenDefault2:
     .byte $29,$12,$25,$26,$31,$00,$03,$04,$05,$02,$00,$31,$00,$1D,$30,$23
     .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$31,$00,$02,$00,$10,$05,$23
     .byte $24,$00,$0A,$0B,$02,$31,$03,$19,$1A,$02,$31,$19,$1A,$00,$00,$23
-    .byte $31,$31,$00,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31
+    .byte $31,$31,$00,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$00,$31,$31
     ; .byte $24,$00,$1F,$20,$31,$31,$1F,$20,$1F,$20,$00,$00,$1F,$20,$00,$23
     .byte $29,$2F,$04,$04,$05,$2F,$05,$05,$04,$04,$2F,$2F,$05,$04,$2F,$29
     .byte $07,$1D,$1E,$1E,$1D,$1D,$1E,$1E,$1E,$1E,$1D,$1D,$1E,$1E,$1D,$07
@@ -4163,9 +4219,9 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
     .byte %00100010, %01011010, %01011010, %00001100, %00000011, %01011010, %01001000, %10011010
     .byte %00100010, %00000000, %00000000, %00010010, %00010010, %01001000, %00010010, %10001000
     .byte %00100011, %10100000, %10000000, %00100000, %10000000, %10100000, %00000000, %10101000
-    .byte %00110010, %10101010, %00000100, %00000001, %00000100, %00000101, %00000000, %10101001
-    .byte %00100010, %00000000, %00000000, %00000000, %00000000, %00000000, %00000100, %10001001
-    .byte %00110010, %01011010, %01010000, %01011010, %01011010, %01010000, %01011010, %10001000
+    .byte %00110010, %10101010, %00100100, %00000001, %00000100, %10000101, %10000000, %10101001
+    .byte %00100010, %00000000, %10000000, %00000010, %00001000, %00100000, %00000100, %10001001
+    .byte %00001010, %01011000, %01011010, %01011010, %01011010, %01011010, %01010010, %10001010
     .byte %00101010, %00000000, %10101010, %00000000, %00000000, %10101010, %00000000, %10001010
 
 ;;;;;;;;;;;;
@@ -4554,7 +4610,13 @@ AnimationPortalContract:
 
 
 JumpStrength:
-    .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$00,$00,$00,$01
+    .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$FF,$FF,$00,$00,$00,$00,$00,$00,$01
+JumpStrengthReleased:
+    .byte $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+HeadbonkStrength:
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$01
+
+
 SpawnerSpeedRamp:
     .byte $01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$FF
 

@@ -122,9 +122,13 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     scrolly: .res 1 ; how far the screen is scrolled in y dir
     var_mem: .res 4 ; sometimes we need to jump to a subroutine and do something with more data than can be juggled with x/y/a
     buttons: .res 1 ; this holds the state of player input for controller 1
-    buttonsp2: .res 2 ; this holds the state of player input for controller 1
+    buttonsp2: .res 1 ; this holds the state of player input for controller 1
+    buttonsp3: .res 1
+    buttonsp4: .res 1
     buttonflag: .res 1
-    buttonflagp2: .res 1 
+    buttonflagp2: .res 1
+    buttonflagp3: .res 1 
+    buttonflagp4: .res 1 
     currenttable: .res 1
     currentrowodd: .res 1 ; holds the currrent row when drawing tiles
     currentroweven: .res 1
@@ -135,19 +139,28 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     oambufferoffset: .res 1
     vxhigh: .res 1
     vxlow: .res 1
-    playerstate: .res 1
     vyhigh: .res 1
     vylow: .res 1
+    playerstate: .res 1
     projectilecountp1: .res 1
     projectilecooldownp1: .res 1
-    playerstateP2: .res 1
     vxlowp2: .res 1
-    vyhighP3: .res 1
-    vylowP3: .res 1
-    playerstateP3: .res 1
-    vyhighP4: .res 1
-    vylowP4: .res 1
-    playerstateP4: .res 1
+    vxhighp2: .res 1
+    vylowp2: .res 1
+    vyhighp2: .res 1
+    playerstatep2: .res 1
+    projectilecountp2: .res 1 
+    projectilecooldownp2: .res 1
+    vxhighp3: .res 1
+    vxlowp3: .res 1
+    vyhighp3: .res 1
+    vylowp3: .res 1
+    playerstatep3: .res 1
+    vxhighp4: .res 1
+    vxlowp4: .res 1
+    vyhighp4: .res 1
+    vylowp4: .res 1
+    playerstatep4: .res 1
     spritebufferposition: .res 1
     temp: .res 1
     temp2: .res 1
@@ -409,9 +422,24 @@ STA $A000
     JSR LoadSingleScreen
 
 
-LDY #$78
-LDX #$D0
+LDY #$58
+LDX #$20
 LDA #EntityType::Player
+JSR SpawnEntity
+
+LDY #$10
+LDX #$80
+LDA #EntityType::Player2
+JSR SpawnEntity
+
+LDY #$48
+LDX #$A8
+LDA #EntityType::Player3
+JSR SpawnEntity
+
+LDY #$20
+LDX #$70
+LDA #EntityType::Player4
 JSR SpawnEntity
 
 LDY #$80
@@ -685,7 +713,7 @@ ProcessEntities:
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer2:
-        LDA playerstateP2
+        LDA playerstatep2
         ASL 
         TAY 
         LDA Player2StateMachine, Y
@@ -694,7 +722,7 @@ ProcessEntities:
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer3:
-        LDA playerstateP3
+        LDA playerstatep3
         ASL 
         TAY 
         LDA Player3StateMachine, Y
@@ -703,7 +731,7 @@ ProcessEntities:
         STA jumppointer+1
         JMP (jumppointer)
     ProcessPlayer4:
-        LDA playerstateP4
+        LDA playerstatep4
         ASL 
         TAY 
         LDA Player4StateMachine, Y
@@ -847,15 +875,27 @@ PlayerStateMachine:
 
 Player2StateMachine:
     .word Player2Init 
-    .word PlayerIdle
+    .word Player2OnFloor
+    .word Player2Jumping
+    .word Player2Headbonk
+    .word Player2JumpReleased
+    .word Player2Disabled
 
 Player3StateMachine:
     .word Player3Init 
-    .word PlayerIdle
+    .word Player3OnFloor
+    .word Player3Jumping
+    .word Player3Headbonk
+    .word Player3JumpReleased
+    .word Player3Disabled
 
 Player4StateMachine:
     .word Player4Init 
-    .word PlayerIdle
+    .word Player4OnFloor
+    .word Player4Jumping
+    .word Player4Headbonk
+    .word Player4JumpReleased
+    .word Player4Disabled
 
 ProjectileSpellStateMachine:
     .word ProjectileSpellMovingLeft 
@@ -922,7 +962,7 @@ Player2Init:
     LDA #$01 
 
     STA entities+Entity::collisionlayer, X 
-    STA playerstateP2
+    STA playerstatep2
     JMP EntityComplete
 
 Player3Init:
@@ -931,7 +971,7 @@ Player3Init:
     LDA #$01 
 
     STA entities+Entity::collisionlayer, X 
-    STA playerstateP3
+    STA playerstatep3
     JMP EntityComplete
 
 Player4Init:
@@ -940,7 +980,7 @@ Player4Init:
     LDA #$01 
 
     STA entities+Entity::collisionlayer, X 
-    STA playerstateP4
+    STA playerstatep4
     JMP EntityComplete
 
 PlayerOnFloor:
@@ -988,7 +1028,7 @@ PlayerOnFloor:
     ; Check for jump
         JSR CheckA
         CMP #ButtonReturn::Press
-        BEQ :+
+        BNE :+
             LDA #$02
             STA playerstate
             LDA #$00
@@ -1068,10 +1108,10 @@ PlayerJumping:
     :
     ;eject from cieling 
     JSR CheckA
-    CMP #ButtonReturn::Release
-    BNE :+
-        LDA #$04
-        STA playerstate
+    ; CMP #ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$04
+    ;     STA playerstate
     LDY entities+Entity::generalpurpose, X 
     LDA JumpStrength, Y 
     CMP #$01 ; iF 01 we've reached the end of the dataset
@@ -1202,6 +1242,790 @@ PlayerDisabled:
     JMP EntityComplete
 PlayerIdle:
     JMP EntityComplete
+
+Player2OnFloor:
+    ; Check if we're shooting this frame 
+    JSR CheckBP2
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball
+    :
+    ; tick the animation timer
+    DEC entities+Entity::animationtimer, X
+    LDA entities+Entity::animationtimer, X
+    BNE :+
+    ; if timer = 0, animate
+    
+    LDA #$20 
+    STA entities+Entity::animationtimer, x
+    LDA entities+Entity::animationframe, X
+    EOR #$01 
+    STA entities+Entity::animationframe, X
+    : 
+    ; Move down and eject from floor
+    ; INC entities+Entity::ypos, X
+    LDA vylowp2
+    CLC 
+    ADC #$0B
+    STA vylowp2
+    LDA vyhighp2
+    ADC $00
+    CMP #$02
+    BCC :+
+    LDA #$02 
+    :
+    STA vyhighp2
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    JSR CollideDown2
+    BEQ :+ ; dontallow jumping if we didnt collide this frame
+        ;If we collide down, 0 velocity
+        LDA #$00
+        STA vxhighp2
+        STA vxlowp2
+    ; Check for jump
+        JSR CheckAP2
+        CMP #ButtonReturn::Press
+        BEQ :+
+            LDA #$02
+            STA playerstatep2
+            LDA #$00
+            STA entities+Entity::generalpurpose, X
+            LDA #$04
+            STA entities+Entity::animationframe, X   
+    :
+
+    ; check if right is pressed
+    JSR CheckRightP2
+    ; move right if pressed
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%00000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP2
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+    JMP EntityComplete 
+Player2Jumping:
+    ; Check if we're shooting this frame 
+    JSR CheckBP2
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRightP2
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP2
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+    ;eject from cieling 
+    JSR CheckAP2
+    ; CMP #ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$04
+    ;     STA playerstate
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrength, Y 
+    CMP #$01 ; iF 01 we've reached the end of the dataset
+    BNE :+ 
+    STA playerstatep2 ;1 is terminating so we can feed that back into the state
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X 
+    STA entities+Entity::ypos, X
+    INC entities+Entity::generalpurpose, X
+    JSR CollideUp2
+    BEQ :+
+    LDA #$03 ; enter headbonk state
+    STA playerstatep2
+    : 
+    JMP EntityComplete
+Player2Headbonk:
+
+    ; Check if we're shooting this frame 
+    JSR CheckBP2
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRightP2
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP2
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA HeadbonkStrength, Y 
+    CMP #$01
+    BNE :+
+    STA playerstatep2
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+Player2JumpReleased:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRight
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeft
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrengthReleased, Y 
+    CMP #$01
+    BNE :+
+    STA playerstate
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+Player2Disabled:
+    JMP EntityComplete
+Player2Idle:
+    JMP EntityComplete
+
+;;;; PLAYER 3 
+Player3OnFloor:
+    ; Check if we're shooting this frame 
+    JSR CheckBP3
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball
+    :
+    ; tick the animation timer
+    DEC entities+Entity::animationtimer, X
+    LDA entities+Entity::animationtimer, X
+    BNE :+
+    ; if timer = 0, animate
+    
+    LDA #$20 
+    STA entities+Entity::animationtimer, x
+    LDA entities+Entity::animationframe, X
+    EOR #$01 
+    STA entities+Entity::animationframe, X
+    : 
+    ; Move down and eject from floor
+    ; INC entities+Entity::ypos, X
+    LDA vylowp3
+    CLC 
+    ADC #$0B
+    STA vylowp3
+    LDA vyhighp3
+    ADC $00
+    CMP #$02
+    BCC :+
+    LDA #$02 
+    :
+    STA vyhighp3
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    JSR CollideDown2
+    BEQ :+ ; dontallow jumping if we didnt collide this frame
+        ;If we collide down, 0 velocity
+        LDA #$00
+        STA vxhighp3
+        STA vxlowp3
+    ; Check for jump
+        JSR CheckAP3
+        CMP #ButtonReturn::Press
+        BEQ :+
+            LDA #$02
+            STA playerstatep3
+            LDA #$00
+            STA entities+Entity::generalpurpose, X
+            LDA #$04
+            STA entities+Entity::animationframe, X   
+    :
+
+    ; check if right is pressed
+    JSR CheckRightP3
+    ; move right if pressed
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%00000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP3
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+    JMP EntityComplete 
+Player3Jumping:
+    ; Check if we're shooting this frame 
+    JSR CheckBP3
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRightP3
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP3
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+    ;eject from cieling 
+    JSR CheckAP3
+    ; CMP #ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$04
+    ;     STA playerstate
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrength, Y 
+    CMP #$01 ; iF 01 we've reached the end of the dataset
+    BNE :+ 
+    STA playerstatep3 ;1 is terminating so we can feed that back into the state
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X 
+    STA entities+Entity::ypos, X
+    INC entities+Entity::generalpurpose, X
+    JSR CollideUp2
+    BEQ :+
+    LDA #$03 ; enter headbonk state
+    STA playerstatep3
+    : 
+    JMP EntityComplete
+Player3Headbonk:
+
+    ; Check if we're shooting this frame 
+    JSR CheckBP3
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRightP3
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP3
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA HeadbonkStrength, Y 
+    CMP #$01
+    BNE :+
+    STA playerstatep3
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+Player3JumpReleased:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRight
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeft
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrengthReleased, Y 
+    CMP #$01
+    BNE :+
+    STA playerstate
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+Player3Disabled:
+    JMP EntityComplete
+Player3Idle:
+    JMP EntityComplete
+
+;;;; PLAYER 4 
+Player4OnFloor:
+    ; Check if we're shooting this frame 
+    JSR CheckBP4
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball
+    :
+    ; tick the animation timer
+    DEC entities+Entity::animationtimer, X
+    LDA entities+Entity::animationtimer, X
+    BNE :+
+    ; if timer = 0, animate
+    
+    LDA #$20 
+    STA entities+Entity::animationtimer, x
+    LDA entities+Entity::animationframe, X
+    EOR #$01 
+    STA entities+Entity::animationframe, X
+    : 
+    ; Move down and eject from floor
+    ; INC entities+Entity::ypos, X
+    LDA vylowp4
+    CLC 
+    ADC #$0B
+    STA vylowp4
+    LDA vyhighp4
+    ADC $00
+    CMP #$02
+    BCC :+
+    LDA #$02 
+    :
+    STA vyhighp4
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    JSR CollideDown2
+    BEQ :+ ; dontallow jumping if we didnt collide this frame
+        ;If we collide down, 0 velocity
+        LDA #$00
+        STA vxhighp4
+        STA vxlowp4
+    ; Check for jump
+        JSR CheckAP4
+        CMP #ButtonReturn::Press
+        BNE :+
+            LDA #$02
+            STA playerstatep4
+            LDA #$00
+            STA entities+Entity::generalpurpose, X
+            LDA #$04
+            STA entities+Entity::animationframe, X   
+    :
+
+    ; check if right is pressed
+    JSR CheckRightP4
+    ; move right if pressed
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%00000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP4
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+    JMP EntityComplete 
+Player4Jumping:
+    ; Check if we're shooting this frame 
+    JSR CheckBP4
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRightP2
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP4
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+    ;eject from cieling 
+    JSR CheckAP4
+    ; CMP #ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$04
+    ;     STA playerstate
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrength, Y 
+    CMP #$01 ; iF 01 we've reached the end of the dataset
+    BNE :+ 
+    STA playerstatep4 ;1 is terminating so we can feed that back into the state
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X 
+    STA entities+Entity::ypos, X
+    INC entities+Entity::generalpurpose, X
+    JSR CollideUp2
+    BEQ :+
+    LDA #$03 ; enter headbonk state
+    STA playerstatep4
+    : 
+    JMP EntityComplete
+Player4Headbonk:
+
+    ; Check if we're shooting this frame 
+    JSR CheckBP4
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRightP4
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeftP4
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA HeadbonkStrength, Y 
+    CMP #$01
+    BNE :+
+    STA playerstatep4
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+Player4JumpReleased:
+    ; Check if we're shooting this frame 
+    JSR CheckB
+    ; if b, spawn fireball 
+    CMP #ButtonReturn::Press
+    BNE :+
+        JSR PlayerAttemptSpawnFireball  
+    :
+    LDA #$01
+    STA entities+Entity::animationframe, X
+    ; check if right is pressed
+    JSR CheckRight
+    CMP #ButtonReturn::Press
+    ; move right if pressed
+    BNE :+
+        LDA #$01
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos,X
+        LDA entities+Entity::attributes, X
+        AND #%01000000 
+        STA entities+Entity::attributes, X
+        ; Eject from wall
+        JSR CollideRight2
+    :
+
+    ;Check Left Cl
+    JSR CheckLeft
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$FF 
+        CLC 
+        ADC entities+Entity::xpos,X
+        STA entities+Entity::xpos, X
+        LDA #%01000000
+        ORA entities+Entity::attributes, X 
+        STA entities+Entity::attributes, X
+        JSR CollideLeft2
+    :
+
+    LDY entities+Entity::generalpurpose, X 
+    LDA JumpStrengthReleased, Y 
+    CMP #$01
+    BNE :+
+    STA playerstate
+    JMP EntityComplete
+    :
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::generalpurpose, X 
+    JSR CollideUp2
+    JMP EntityComplete
+
+Player4Disabled:
+    JMP EntityComplete
+Player4Idle:
+    JMP EntityComplete
+
+
 PlayerAttemptSpawnFireball:
     LDA projectilecooldownp1 ; load cooldown
     BEQ :+ ; if timer is zero, continue, else return
@@ -2089,7 +2913,7 @@ SliderData:
 ;Input 
 ;;;;;;;;;;;;;
 ReadButtons:
-    ; Ping $4016 with a 1 to get it ready to send buttons 
+    ; P  ing $4016 with a 1 to get it ready to send buttons 
     LDA #$01
     STA $4016
     STA buttons        ; Put 1 into buttons so we can use it to manipulate the carry flag in 8 loops time
@@ -2097,25 +2921,39 @@ ReadButtons:
     STA $4016
 
     ;TODO make this a loop by slotting a one back into the carry flag after the 8th loop
-    ButtonLoop:
+    ReadButtonLoop:
         LDA $4016
         ROR 
         ROL buttons ; ror + rol moves the 
     
-        BCC ButtonLoop ; after 8 loops, the 1 will shift back into the carry and end the loop
+        BCC ReadButtonLoop ; after 8 loops, the 1 will shift back into the carry and end the loop
 
-    CLC 
+    LDA #$01
+    LSR 
+    ReadButtonLoopP3:
+        LDA $4016
+        ROR 
+        ROL buttonsp3
+        BCC ReadButtonLoopP3
+
     LDA #$01
     STA $4017
     STA buttonsp2
-    ROR 
+    LSR
     STA $4017
 
-    ButtonLoopP2:
-        LDA $4016
+    ReadButtonLoopP2:
+        LDA $4017
         ROR 
         ROL buttonsp2
-        BCC ButtonLoopP2
+        BCC ReadButtonLoopP2
+    LDA #$01
+    LSR 
+    ReadButtonLoopP4:
+        LDA $4017 
+        ROR 
+        ROL buttonsp4
+        BCC ReadButtonLoopP4
 RTS
 
 
@@ -2126,7 +2964,7 @@ CheckA:
     LDA buttonflag ; if the button is pressed, set this so that we can check release next frame
     ORA #$01
     STA buttonflag
-    LDA #$01 
+    LDA #ButtonReturn::Press 
     RTS
 
     CheckARelease: ; If the button isn't pressed, check whether it was pressed last frame and released
@@ -2136,7 +2974,7 @@ CheckA:
         LDA buttonflag
         EOR #$01 
         STA buttonflag
-        LDA #$02
+        LDA #ButtonReturn::Release
         RTS 
 :
 LDA #$00
@@ -2479,17 +3317,365 @@ CheckRightP2:
 LDA #$00
 RTS 
 
+CheckAP3:
+    LDA buttonsp3 
+    AND #%10000000 ; if the first nibble is set then a is pressed
+    BEQ CheckAReleaseP3
+    LDA buttonflagp3 ; if the button is pressed, set this so that we can check release next frame
+    ORA #$01
+    STA buttonflagp3
+    LDA #ButtonReturn::Press 
+    RTS
 
+    CheckAReleaseP3: ; If the button isn't pressed, check whether it was pressed last frame and released
+        LDA buttonflagp3
+        AND #$01
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$01 
+        STA buttonflagp3
+        LDA #ButtonReturn::Release
+        RTS 
+:
+LDA #$00
+RTS 
 
+CheckBP3:
 
-EndButtons:
-RTS
+    LDA buttonsp3
+    AND #%01000000
+    BEQ CheckBReleaseP3
+    LDA buttonflagp3
+    ORA #$02
+    STA buttonflagp3
+    LDA #ButtonReturn::Press
+    RTS
 
+    CheckBReleaseP3:
+        LDA buttonflagp3
+        AND #$02
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$02 
+        STA buttonflagp3
+        LDA #ButtonReturn::Release
+        RTS 
+:
+LDA #ButtonReturn::NoPress
+RTS 
 
+CheckSelectP3:
+    LDA buttonsp3
+    AND #%00100000
+    BEQ CheckSelectReleaseP3 
+    LDA buttonflagp3
+    ORA #$04 
+    STA buttonflagp3    
+    LDA ButtonReturn::Press
+    RTS
+    CheckSelectReleaseP3:
+        LDA buttonflagp3
+        AND #$04
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$04 
+        STA buttonflagp3
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
+CheckStartP3:
+    LDA buttonsp3
+    AND #%00010000
+    BEQ CheckStartReleaseP3
+    LDA buttonflagp3
+    ORA #$08
+    STA buttonflagp3
+    LDA ButtonReturn::Press
+    RTS
+    CheckStartReleaseP3:
+        LDA buttonflagp3
+        AND #$08
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$08 
+        STA buttonflagp3
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
+CheckUpP3:  
+    LDA buttonsp3
+    AND #%00001000
+    BEQ  CheckUpReleaseP3
+    LDA buttonflagp3
+    ORA #$10
+    STA buttonflagp3
+    LDA ButtonReturn::Press
+    RTS
+    CheckUpReleaseP3:
+        LDA buttonflagp3
+        AND #$10
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$10 
+        STA buttonflagp3
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
+CheckDownP3:
+    LDA buttonsp3
+    AND #%00000100
+    BEQ CheckDownReleaseP3 
+    LDA buttonflagp3 
+    ORA #$20 
+    STA buttonflagp3 
+    LDA ButtonReturn::Press
+    RTS
+    CheckDownReleaseP3:
+        LDA buttonflagp3
+        AND #$20
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$20 
+        STA buttonflagp3
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
 
+CheckLeftP3:
+    LDA buttonsp3
+    AND #%00000010
+    BEQ CheckLeftReleaseP3
+    LDA buttonflagp3
+    ORA #$40 
+    STA buttonflagp3 
+    LDA #$01
+    RTS
+    CheckLeftReleaseP3:
+        LDA buttonflagp3
+        AND #$04
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$04 
+        STA buttonflagp3
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
+CheckRightP3:
+
+    LDA buttonsp3
+    AND #%00000001
+    BEQ CheckRightReleaseP3
+    LDA buttonflagp3 
+    ORA #$80 
+    STA buttonflagp3
+    LDA #$01
+    RTS
+    CheckRightReleaseP3:
+        LDA buttonflagp3
+        AND #$80
+        BEQ :+
+        LDA buttonflagp3
+        EOR #$80 
+        STA buttonflagp3
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
+CheckAP4:
+    LDA buttonsp4 
+    AND #%10000000 ; if the first nibble is set then a is pressed
+    BEQ CheckAReleaseP4
+    LDA buttonflagp4 ; if the button is pressed, set this so that we can check release next frame
+    ORA #$01
+    STA buttonflagp4
+    LDA #ButtonReturn::Press 
+    RTS
+
+    CheckAReleaseP4: ; If the button isn't pressed, check whether it was pressed last frame and released
+        LDA buttonflagp4
+        AND #$01
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$01 
+        STA buttonflagp4
+        LDA #ButtonReturn::Release
+        RTS 
+:
+LDA #$00
+RTS 
+
+CheckBP4:
+
+    LDA buttonsp4 
+    AND #%01000000
+    BEQ CheckBReleaseP4
+    LDA buttonflagp4
+    ORA #$02
+    STA buttonflagp4
+    LDA #ButtonReturn::Press
+    RTS
+
+    CheckBReleaseP4:
+        LDA buttonflagp4
+        AND #$02
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$02 
+        STA buttonflagp4
+        LDA #ButtonReturn::Release
+        RTS 
+:
+LDA #ButtonReturn::NoPress
+RTS 
+
+CheckSelectP4:
+    LDA buttonsp4
+    AND #%00100000
+    BEQ CheckSelectReleaseP4 
+    LDA buttonflagp4
+    ORA #$04 
+    STA buttonflagp4    
+    LDA ButtonReturn::Press
+    RTS
+    CheckSelectReleaseP4:
+        LDA buttonflagp4
+        AND #$04
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$04 
+        STA buttonflagp4
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckStartP4:
+    LDA buttonsp4
+    AND #%00010000
+    BEQ CheckStartReleaseP4
+    LDA buttonflagp4
+    ORA #$08
+    STA buttonflagp4
+    LDA ButtonReturn::Press
+    RTS
+    CheckStartReleaseP4:
+        LDA buttonflagp4
+        AND #$08
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$08 
+        STA buttonflagp4
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckUpP4:  
+    LDA buttonsp4
+    AND #%00001000
+    BEQ  CheckUpReleaseP4
+    LDA buttonflagp4
+    ORA #$10
+    STA buttonflagp4
+    LDA ButtonReturn::Press
+    RTS
+    CheckUpReleaseP4:
+        LDA buttonflagp4
+        AND #$10
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$10 
+        STA buttonflagp4
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckDownP4:
+    LDA buttonsp4
+    AND #%00000100
+    BEQ CheckDownReleaseP4 
+    LDA buttonflagp4 
+    ORA #$20 
+    STA buttonflagp4
+    LDA ButtonReturn::Press
+    RTS
+    CheckDownReleaseP4:
+        LDA buttonflagp4
+        AND #$20
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$20 
+        STA buttonflagp4
+        LDA ButtonReturn::Release
+        RTS 
+:
+LDA ButtonReturn::NoPress
+RTS 
+
+CheckLeftP4:
+    LDA buttonsp4
+    AND #%00000010
+    BEQ CheckLeftReleaseP4
+    LDA buttonflagp4
+    ORA #$40 
+    STA buttonflagp4
+    LDA #$01
+    RTS
+    CheckLeftReleaseP4:
+        LDA buttonflagp4
+        AND #$04
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$04 
+        STA buttonflagp4
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
+
+CheckRightP4:
+
+    LDA buttonsp4
+    AND #%00000001
+    BEQ CheckRightReleaseP4
+    LDA buttonflagp4
+    ORA #$80 
+    STA buttonflagp4
+    LDA #$01
+    RTS
+    CheckRightReleaseP4:
+        LDA buttonflagp4
+        AND #$80
+        BEQ :+
+        LDA buttonflagp4
+        EOR #$80 
+        STA buttonflagp4
+        LDA #$02
+        RTS 
+:
+LDA #$00
+RTS 
 
 
 InputA:
@@ -4117,10 +5303,16 @@ floor_middle:
     .byte $01,$01
     .byte $01,$01
 floor_half:
-    .byte $00,$01
+    .byte $A2,$A3
     .byte $68,$69
     .byte $00,$00
     .byte $01,$01
+floor_half_reversed:
+    .byte $68,$69
+    .byte $92,$93
+    .byte $01,$01
+    .byte $00,$00
+
 
 MetaTileList:
     .word brick ;00
@@ -4173,9 +5365,10 @@ MetaTileList:
     .word brick_divided ; 2f
     .word floor_middle ; 30
     .word floor_half ; 31
+    .word floor_half_reversed
 
 PaletteData:
-    .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$16,$07,$27, $0F,$05,$15,$30  ;background palette data  
+    .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$07,$16,$27, $0F,$05,$15,$30  ;background palette data  
     .byte $0F,$17,$27,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
 
 ScreenDefault: ; the  format of a screen is that each byte represents 1 meta tile, made up of 4 8x8 pixel blocks to save huge

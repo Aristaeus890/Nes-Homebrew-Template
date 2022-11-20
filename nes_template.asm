@@ -1076,7 +1076,7 @@ PlayerOnFloor:
         INC temp2
         LDA vxlow
         CLC 
-        ADC #$10
+        ADC #$50
         STA vxlow
         LDA vxhigh
         ADC #$00
@@ -1118,14 +1118,7 @@ PlayerOnFloor:
     :
 
         ; Add to position
-    LDA vxlow
-    CLC 
-    ADC xposlow
-    STA xposlow
-    LDA entities+Entity::xpos, X 
-    ADC #00
-    ADC vxhigh
-    STA entities+Entity::xpos, X
+    JSR PlayerXMovement
         ; Eject from wall
     JSR CollideLeft2
     BEQ :+
@@ -1141,7 +1134,7 @@ PlayerOnFloor:
         STA vxhigh
         STA vxlow
     :    
-    JSR PlayerApplyFriction 
+
 
 
     PlayerOnFloorAnimate:
@@ -1335,6 +1328,83 @@ PlayerJumpReleased:
     INC entities+Entity::generalpurpose, X 
     JSR CollideUp2
     JMP EntityComplete
+
+PlayerXMovement:
+    LDA vxhigh
+    ; BEQ EndXMovement 
+    BIT vxhigh
+    BMI LimitXLeft
+
+    LimitXRight:
+        JSR ApplyFriction
+        LDA vxhigh
+        CMP #$01
+        BCC :+ 
+        LDA #$01
+        STA vxhigh
+        LDA #$00
+        STA vxlow
+        :
+        JMP AddVx
+    LimitXLeft:
+        JSR ApplyFriction
+        BCS AddVx
+        LDA vxhigh
+        CMP #$FF
+        BCS :+ 
+        LDA #$FF 
+        STA vxhigh
+        LDA #$00 
+        STA vxlow
+        :
+    AddVx:
+        LDA xposlow
+        CLC 
+        ADC vxlow
+        STA xposlow
+        LDA entities+Entity::xpos, X 
+        ADC #$00
+        ADC vxhigh
+        STA entities+Entity::xpos, X 
+EndXMovement:
+RTS
+
+ApplyFriction:
+    LDA vxhigh
+    BEQ FrictionLessThanZero
+    BMI FrictionP
+
+    FrictionN:
+    LDA vxlow
+    SEC 
+    SBC #$20 
+    STA vxlow
+    LDA vxhigh
+    SBC #$00 
+    STA vxhigh
+RTS 
+
+    FrictionP:
+    LDA vxlow
+    CLC 
+    ADC #$20 
+    STA vxlow
+    LDA vxhigh
+    ADC #$00
+    STA vxhigh
+RTS
+
+FrictionLessThanZero: 
+    LDA vxlow
+    SEC 
+    SBC #$20
+    STA vxlow
+    BCS :+ 
+    LDA #$00 
+    STA vxlow
+    :
+    RTS 
+
 
 PlayerApplyFriction:
     LDA temp2

@@ -144,6 +144,7 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     vxlow: .res 1
     vyhigh: .res 1 
     vylow: .res 1
+    xdir: .res 1
     playerstate: .res 1
     projectilecountp1: .res 1
     projectilecooldownp1: .res 1
@@ -425,15 +426,15 @@ STA $A000
     JSR LoadSingleScreen
 
 
-LDY #$50
-LDX #$20
+LDY #$90
+LDX #$90
 LDA #EntityType::Player
 JSR SpawnEntity
 
-LDY #$58
-LDX #$20
-LDA #EntityType::IceBeam
-JSR SpawnEntity
+; LDY #$58
+; LDX #$20
+; LDA #EntityType::IceBeam
+; JSR SpawnEntity
 
 
 LDY #$10
@@ -456,30 +457,30 @@ LDX #$50
 LDA #EntityType::Slider
 JSR SpawnEntity
 
-LDY #$20
-LDX #$80
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$20
+; LDX #$80
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$50
-LDX #$60
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$50
+; LDX #$60
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$20
-LDX #$20
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$20
+; LDX #$20
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$20
-LDX #$90
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$20
+; LDX #$90
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 
-LDY #$80
-LDX #$50
-LDA #EntityType::Slider
-JSR SpawnEntity
+; LDY #$80
+; LDX #$50
+; LDA #EntityType::Slider
+; JSR SpawnEntity
 ; LDY #$1wnEntity
 
 
@@ -1071,8 +1072,8 @@ PlayerOnFloor:
     JSR CheckRight
     ; move right if pressed
     CMP #ButtonReturn::Press
-    BNE :+ 
-        ; INC temp2
+    BNE :+
+        INC temp2
         LDA vxlow
         CLC 
         ADC #$10
@@ -1082,55 +1083,42 @@ PlayerOnFloor:
         STA vxhigh
         ; Clamp veloctiy
         CMP #$01
-        BCC :++
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
         LDA vxlow
-        BPL :+
-        LDA #$01
-        STA vxhigh
-        LDA #$80
+        CMP #$30
+        BCC :+
+        LDA #$30
         STA vxlow
-        :
-
-
-        ; Eject from wall
-        JSR CollideRight2
-        BEQ :+
-        ; If we ejected, zero velocity
-            LDA #$00
-            STA vxhighp2
-            STA vxlowp2
     :
 
     ;Check Left Cl
     JSR CheckLeft
     CMP #ButtonReturn::Press
-    BNE :++
-        ; DEC temp2
+    BNE :+
+        DEC temp2
         LDA vxlow
         SEC 
-        SBC #$30
+        SBC #$10
         STA vxlow
         LDA vxhigh
         SBC #$00
-        ; Clamp veloctiy
-        CMP #$FE
-        BCS :+
-        LDA #$FE
-        STA vxlow
-        :
         STA vxhigh
-
-        ; Eject from wall
-        JSR CollideLeft2
-        BEQ :+
-        ; If we ejected, zero velocity
-            LDA #$00
-            STA vxhigh
-            STA vxlow
+        ; Clamp veloctiy
+        CMP #$FF
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlow
+        CMP #$30
+        BCS :+
+        LDA #$30
+        STA vxlow
     :
-    ; If we didn't press anything, apply friction
+
         ; Add to position
-     LDA vxlow
+    LDA vxlow
     CLC 
     ADC xposlow
     STA xposlow
@@ -1138,8 +1126,23 @@ PlayerOnFloor:
     ADC #00
     ADC vxhigh
     STA entities+Entity::xpos, X
+        ; Eject from wall
+    JSR CollideLeft2
+    BEQ :+
+        ; If we ejected, zero velocity
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+    :    
+    JSR CollideRight2
+    BEQ :+
+        ; If we ejected, zero velocity
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+    :    
     JSR PlayerApplyFriction 
-    ; BNE PlayerOnFloorAnimate
+
 
     PlayerOnFloorAnimate:
     ; pick animation frame!
@@ -1334,7 +1337,10 @@ PlayerJumpReleased:
     JMP EntityComplete
 
 PlayerApplyFriction:
-    ; LDA temp2
+    LDA temp2
+    BEQ :+
+    RTS
+    :
     LDA vxhigh
     BEQ FrictionReduceSubOnly
     BIT vxhigh
@@ -1360,6 +1366,8 @@ PlayerApplyFriction:
     EndPlayerApplyFriction:
     RTS
     FrictionReduceSubOnly:
+    LDA temp2
+    BNE :+
     LDA vxlow
     SEC
     SBC #$40
@@ -3325,7 +3333,7 @@ CheckRight:
     LDA buttonflag 
     ORA #$80 
     STA buttonflag
-    LDA #$01
+    LDA #ButtonReturn::Press
     RTS
     CheckRightRelease:
         LDA buttonflag
@@ -3334,10 +3342,10 @@ CheckRight:
         LDA buttonflag
         EOR #$80 
         STA buttonflag
-        LDA #$02
+        LDA #ButtonReturn::Release
         RTS 
 :
-LDA #$00
+LDA #ButtonReturn::NoPress
 RTS 
 
 CheckAP2:
@@ -5552,8 +5560,8 @@ ScreenDefault2:
     .byte $24,$12,$23,$24,$02,$00,$00,$04,$05,$00,$00,$02,$00,$00,$00,$23
     .byte $29,$12,$25,$26,$32,$00,$03,$04,$05,$02,$00,$32,$00,$1D,$30,$23
     .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$31,$00,$02,$00,$10,$05,$23
-    .byte $24,$00,$0A,$0B,$02,$31,$03,$19,$1A,$02,$31,$19,$1A,$00,$00,$23
-    .byte $31,$31,$00,$32,$32,$31,$31,$31,$31,$31,$31,$32,$32,$00,$31,$31
+    .byte $24,$00,$0A,$0B,$02,$31,$03,$19,$1A,$02,$00,$19,$1A,$00,$00,$23
+    .byte $31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31,$31
     ; .byte $24,$00,$1F,$20,$31,$31,$1F,$20,$1F,$20,$00,$00,$1F,$20,$00,$23
     .byte $29,$2F,$04,$04,$05,$2F,$05,$05,$04,$04,$2F,$2F,$05,$04,$2F,$29
     .byte $07,$1D,$1E,$1E,$1D,$1D,$1E,$1E,$1E,$1E,$1D,$1D,$1E,$1E,$1D,$07

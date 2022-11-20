@@ -1097,7 +1097,7 @@ PlayerOnFloor:
     JSR CheckLeft
     CMP #ButtonReturn::Press
     BNE :+
-        DEC temp2
+        INC temp2
         LDA vxlow
         SEC 
         SBC #$10
@@ -1338,7 +1338,7 @@ PlayerJumpReleased:
 
 PlayerApplyFriction:
     LDA temp2
-    BEQ :+
+    BNE :+
     RTS
     :
     LDA vxhigh
@@ -1367,7 +1367,7 @@ PlayerApplyFriction:
     RTS
     FrictionReduceSubOnly:
     LDA temp2
-    BNE :+
+    BEQ :+
     LDA vxlow
     SEC
     SBC #$40

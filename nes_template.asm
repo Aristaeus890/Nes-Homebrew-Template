@@ -1100,7 +1100,7 @@ PlayerOnFloor:
         INC temp2
         LDA vxlow
         SEC 
-        SBC #$10
+        SBC #$50
         STA vxlow
         LDA vxhigh
         SBC #$00

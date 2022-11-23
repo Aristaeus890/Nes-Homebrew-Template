@@ -1,10 +1,6 @@
 ; This is a template for a basic NES rom
 ; it uses ines 1.0, not 2.0
 
-;FEATURES
-; - Entity Systemt
-; - Bank Swapping between 2 chr banks
-; - Animations 
 
 ; INes 1.0
 .segment "HEADER" 
@@ -18,33 +14,6 @@
 .byte $00 ; unused extension
 .byte "<"
 .byte "3Matt" ; filler bytes to fill out the end of the header
-
-; FamiStudio config.
-FAMISTUDIO_CFG_EXTERNAL       = 1
-FAMISTUDIO_CFG_DPCM_SUPPORT   = 1
-FAMISTUDIO_CFG_SFX_SUPPORT    = 1 
-FAMISTUDIO_CFG_SFX_STREAMS    = 2
-FAMISTUDIO_CFG_EQUALIZER      = 1
-FAMISTUDIO_USE_VOLUME_TRACK   = 1
-FAMISTUDIO_USE_PITCH_TRACK    = 1
-FAMISTUDIO_USE_SLIDE_NOTES    = 1
-FAMISTUDIO_USE_VIBRATO        = 1
-FAMISTUDIO_USE_ARPEGGIO       = 1
-FAMISTUDIO_CFG_SMOOTH_VIBRATO = 1
-FAMISTUDIO_USE_RELEASE_NOTES  = 1
-FAMISTUDIO_DPCM_OFF           = $e000
-
-; NESASM-specific config.
-FAMISTUDIO_NESASM_ZP_RSSET  = $00b4
-FAMISTUDIO_NESASM_BSS_RSSET = $300
-FAMISTUDIO_NESASM_CODE_BANK = 0
-FAMISTUDIO_NESASM_CODE_ORG  = $8000
-
-.define FAMISTUDIO_CA65_ZP_SEGMENT ZEROPAGE
-.define FAMISTUDIO_CA65_RAM_SEGMENT BSS
-.define FAMISTUDIO_CA65_CODE_SEGMENT CODE
-
-; .include "famistudio_ca65.s"
 
 .scope EntityType ; NB this should match the order in the process entity list in order for the jump table to hit the right address
     NoEntity = 0
@@ -69,30 +38,6 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     TeleporterP4 = 19
 .endscope
 
-.scope Spawnlocation
-    Spawn1X = 20
-    Spawn1Y = 20
-    Spawn2X = 200
-    Spawn2Y = 20
-    Spawn3X = 20 
-    Spawn3Y = 200
-    Spawn4X = 200
-    Spawn4Y = 200
-.endscope
-
-.scope CollisionType
-    NoCollision = 0 
-    LayerOne = 1
-    LayerTwo = 1
-    LayerThree = 1
-    LayerFour = 1
-.endscope
-
-; .scope PlayerState
-;     OnGround = $00
-;     Jumping = $01
-;     Falling = $02
-; .endscope 
 
 .scope ButtonReturn
     NoPress = 0
@@ -176,17 +121,6 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     rectangle1: .res 4 
     rectangle2: .res 4
 
-    ;While we're here, we'll define some locations that will act as buffers in memory. This could be anywhere, its just here for organisation
-    SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
-    TileBufferH = $0300 ; $0300 ->  ; Tiles that need to be written when the screen has scrolled are stored here
-    CollisionMap = $0310 ; 0310 -> 0400 ; 240 byte collision map for tile collision
-    CurrentBackgroundPalette = $04C0 ; -> 04CF
-    SpawnerIndex = $04D0 ; -> 04D0 
-    SpawnerStack = $04D1 ; -> 051D 3X15 bytes, x,y, entity
-    DestructionIndex = $051E ; -> 051E  
-    DestructionStack = $051F ; -> 0523 5 bytes  
-    PlayerSpawnIndex = $0524
-    PlayerSpawnStack = $0525 ; -> 0528 4 bytes
 
     PPUControl = $2000 
     PPUMask= $2001 
@@ -198,12 +132,31 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
     PPUData = $2007 
     OAMDMA = $4014
 
-    player1spawnx =20
-    player1spawny =20
-    player2spawnx =235
-    player2spawny =20
+.segment "OAM"
+SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
+; SpriteBuffer = $0200
 
 .segment "RAM"
+    ; SpriteBuffer: .res 256
+    ; TileBufferH: .res 16
+    ; CollisionMap: .res 240
+    ; CurrentBackgroundPalette: .res 16
+    ; SpawnerIndex: .res 1
+    ; SpawnerStack: .res 16
+    ; DestructionIndex: .res 1
+    ; DestructionStack: .res 5 
+    ; PlayerSpawnIndex: .res 1
+    ; PlayerSpawnStack: .res 4
+    ; SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
+    TileBufferH = $0400 ; $0300 ->  ; Tiles that need to be written when the screen has scrolled are stored here
+    CollisionMap = $0410 ; 0310 -> 0400 ; 240 byte collision map for tile collision
+    CurrentBackgroundPalette = $05C0 ; -> 04CF
+    SpawnerIndex = $05D0 ; -> 04D0 
+    SpawnerStack = $05D1 ; -> 051D 3X15 bytes, x,y, entity
+    DestructionIndex = $061E ; -> 051E  
+    DestructionStack = $061F ; -> 0523 5 bytes  
+    PlayerSpawnIndex = $0624
+    PlayerSpawnStack = $0625 ; -> 0528 4 bytes
 
 
 
@@ -212,9 +165,11 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
         SEI ; Disables all interrupts
         CLD ; disable decimal mode (nes 6502 does not support decimals)
 
+    
+
         ; Disable sound IRQ
-        LDX #$40
-        STX $4017
+        LDA #$40
+        STA $4017
 
         ; Initialize the stack register
         LDX #$FF
@@ -233,9 +188,6 @@ FAMISTUDIO_NESASM_CODE_ORG  = $8000
         BPL :-
 
         TXA
-
-.segment "CODE" ; the bulk of code will  be placed here. This will begin running from the start once startup has finished
-
 
 ;; This clears out the memory when we start up
 CLEARMEM:
@@ -269,6 +221,7 @@ CLEARMEM:
 
     LDX #$00
 
+.segment "CODE"
 
 LoadPalettes:
     FillPaletteRam:
@@ -326,30 +279,6 @@ InitWorld:
     LDX #$00
     LDY #$00
                 
-
-; LoadWorld:
-;     ; note this is a quick and dirty way to fill an initial screen. It doesn't use meta tiles but an uncompressed block of bytes
-;     ; LDA (world), Y ; load a byte from the data in the address stored in 'world' offset by y
-;     LDA #$21
-;     STA $2007 ; write that byte to the ppu. The ppu then automatically increments, so we can just write to it repeatedly
-;     INY
-;     CPX #$03 ; we need to write 960 bytes to the ppu, so we use X to check if we've gone through Y the required number of times
-;     BNE :+
-;     CPY #$E0 ; 
-;     BEQ DoneLoadingWorld
-; :
-;     CPY #$00
-;     BNE LoadWorld
-;     INX
-;     INC world+1
-;     JMP LoadWorld
-
-; DoneLoadingWorld:
-;     LDX #$00
-
-
-
-
 SetAttributes:
     LDX #$00
     LDA #$23
@@ -393,26 +322,6 @@ STA $A000
 LSR
 STA $A000
 
-    ;                             l
-    ; set up for a screen load    V
-
-    ; LDA #< ScreenDefault ; take the low byte
-    ; STA world ; store low byte in z page
-    ; LDA #> ScreenDefault ; take the high  setubyte
-    ; STA world+1 ; etc
-
-    ; LDA #<CollisionMap 
-    ; STA currentcollisionaddress
-    ; LDA #>CollisionMap
-    ; STA currentcollisionaddress+1
-
-    ; LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    ; STA $PPUScroll
-    ; LDA #$00
-    ; STA $PPUScroll
-
-    ; JSR LoadSingleScreen
-
     LDA #<ScreenDefault2
     STA world 
     LDA #>ScreenDefault2
@@ -442,79 +351,22 @@ LDA #$02
 JSR AddEntityToPlayerSpawnStack
 LDA #$01
 JSR AddEntityToPlayerSpawnStack
-; LDY #$90
-; LDX #$90
-; LDA #EntityType::Player
-; JSR SpawnEntity
 
-; LDY #$58
-; LDX #$20
-; LDA #EntityType::IceBeam
-; JSR SpawnEntity
+LDX #$20
+LDY #$20
+LDA #EntityType::Player
+JSR SpawnEntity
 
 
-; LDY #$18
-; LDX #$40
-; LDA #EntityType::Teleporter
-; JSR SpawnEntity
-
-; LDY #$48
-; LDX #$A8
-; LDA #EntityType::Player3
-; JSR SpawnEntity
-
-; LDY #$20
-; LDX #$70
-; LDA #EntityType::Player4
-; JSR SpawnEntity
-
-; LDY #$80
-; LDX #$50
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$20
-; LDX #$80
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$50
-; LDX #$60
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$20
-; LDX #$20
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$20
-; LDX #$90
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-
-; LDY #$80
-; LDX #$50
-; LDA #EntityType::Slider
-; JSR SpawnEntity
-; LDY #$1wnEntity
+ldx #.lobyte(music_data_silver_surfer_c_stephen_ruddy)
+ldy #.hibyte(music_data_silver_surfer_c_stephen_ruddy)
+        
+lda #$01 ; NTSC
+jsr famistudio_init
+lda #$00
+jsr famistudio_music_play
 
 
-
-
-; LDY #$b0
-; LDX #$70
-; LDA #EntityType::LightningEmitter
-; JSR SpawnEntity
-
-
-
-
-
-; LDY #$FF
-; LDX #$FF
-; LDA #EntityType::Respawner
-; JSR SpawnEntity
 
     ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -524,21 +376,22 @@ JSR AddEntityToPlayerSpawnStack
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
-    JSR Setrng
-    ; LDY #$00
-    ; LDX #$20
-    ; LDA #EntityType::Slider
-    ; JSR SpawnEntity
+    JSR famistudio_update
+    ; 
+    LDA #$3f
+    STA $2001
     JSR DoGameLogic
+    JSR Setrng
     ; DEC scrolly
     
     ; INC scrollx 
     JSR IncFrameCount   ; Counts to 59 then resets to 0
-    JSR AlternateBanks
+    ; JSR AlternateBanks
     ; JSR DoScroll       
     JSR OAMBuffer   ; Sprite data is written to the buffer here
     ; JSR WriteToTileBuffer ; write to the tile buffer when scrolling
-
+    LDA #$1E
+    STA $2001
 ; Once the game logic loop is done, we hover here and wait for a vblank
 ; After a return from Vblank, we jump back to the logic loop    
 IsVBlankDone:
@@ -564,6 +417,8 @@ MAINLOOP:
     TYA 
     PHA
 
+    
+
     LDA #$00
     STA PPUMask ; disable rendering before we access the ppu for safety
 
@@ -581,6 +436,7 @@ MAINLOOP:
     LDA #%10011110
     STA PPUMask ; reenable rendering for the ppu
     ;JSR SoundPlayFrame
+    ; JSR famistudio_update
     INC nmidone 
 
     ; Bring the stack values back into the registers
@@ -2513,7 +2369,7 @@ RespawnerMoveToSpawn:
     :
     ;move
     LDA entities+Entity::xpos, X 
-    CMP #Spawnlocation::Spawn1X
+    ; CMP #Spawnlocation::Spawn1X
     BEQ RespawnerEndXMove
     BCS :+
     INC entities+Entity::xpos, X 
@@ -2523,7 +2379,7 @@ RespawnerMoveToSpawn:
     RespawnerEndXMove:
 
     LDA entities+Entity::ypos, X 
-    CMP #Spawnlocation::Spawn1Y
+    ; CMP #Spawnlocation::Spawn1Y
     BEQ RespawnerEndYMove
     BCS :+
     INC entities+Entity::ypos, X 
@@ -2533,10 +2389,10 @@ RespawnerMoveToSpawn:
     RespawnerEndYMove:
     
     LDA entities+Entity::ypos, X
-    CMP #Spawnlocation::Spawn1Y
+    ; CMP #Spawnlocation::Spawn1Y
     BNE EndRespawnerMoveToSpawn 
     LDA entities+Entity::xpos, X 
-    CMP #Spawnlocation::Spawn1X
+    ; CMP #Spawnlocation::Spawn1X
     BNE EndRespawnerMoveToSpawn
     ; At spawnpoint, create player 
     TXA 
@@ -2605,9 +2461,9 @@ RespawnerMoveRight:
     JMP EntityComplete
 
 PortalInit: ; spawns player 2 
-    LDA #Spawnlocation::Spawn2X
+    ; LDA #Spawnlocation::Spawn2X
     STA entities+Entity::xpos, X 
-    LDA #Spawnlocation::Spawn2Y
+    ; LDA #Spawnlocation::Spawn2Y
     STA entities+Entity::ypos, X
     LDA #$00
     STA entities+Entity::animationtimer, X 
@@ -2690,7 +2546,7 @@ BroomStickMoveToSpawn:
     LDA #$02
     STA temp
     LDA entities+Entity::xpos, X 
-    CMP #Spawnlocation::Spawn3X
+    ; CMP #Spawnlocation::Spawn3X
     BEQ :+
     CLC 
     ADC #$02 
@@ -2699,7 +2555,7 @@ BroomStickMoveToSpawn:
     :
     DEC temp
     LDA entities+ Entity::ypos,x
-    CMP #Spawnlocation::Spawn3Y
+    ; CMP #Spawnlocation::Spawn3Y
     BEQ :+
     CLC 
     ADC #$02 
@@ -5339,14 +5195,13 @@ ExplodeAndRespawn:
     JSR SpawnEntity
     JMP ProcessDestructionStack
 
+.include "famistudio_ca65.s"
 
-;;;;;;;;;;;;H
 
-;;;; TILE HANDLING
 ;;;;;;;;;;;;
 
 
-
+; .segment "DATA"
 
 ; Meta tile definitions. The first 4 bytes refer to tiles in chr rom
 ; The 5th byte is the collision for the block. 0=no collide 1 = collide
@@ -6185,6 +6040,13 @@ HeadbonkStrength:
 
 SpawnerSpeedRamp:
     .byte $01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$FF
+
+
+.segment "SONG1"
+song_silver_surfer:
+.include "song_silver_surfer_ca65.s"
+
+.segment "DPCM"
 
 
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 

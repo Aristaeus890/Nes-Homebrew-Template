@@ -376,7 +376,7 @@ jsr famistudio_music_play
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
-    JSR famistudio_update
+    ; JSR famistudio_update
     ; 
     LDA #$3f
     STA $2001

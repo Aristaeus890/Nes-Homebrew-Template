@@ -89,6 +89,8 @@
     oambufferoffset: .res 1
     xposlow: .res 1
     yposlow: .res 1
+    xposlowp2: .res 1
+    yposlowp2: .res 1
     vxhigh: .res 1
     vxlow: .res 1
     vyhigh: .res 1 
@@ -351,35 +353,50 @@ LDA #$02
 JSR AddEntityToPlayerSpawnStack
 LDA #$01
 JSR AddEntityToPlayerSpawnStack
-
+LDX #$50
+LDY #$40 
+LDA #EntityType::Slider
+JSR SpawnEntity
+LDX #$30
+LDY #$40 
+LDA #EntityType::Slider
+JSR SpawnEntity
+LDX #$40
+LDY #$50 
+LDA #EntityType::Slider
+JSR SpawnEntity
+LDX #$30
+LDY #$50 
+LDA #EntityType::Slider
+JSR SpawnEntity
 LDX #$20
-LDY #$20
-LDA #EntityType::Player
+LDY #$50 
+LDA #EntityType::Slider
+JSR SpawnEntity
+
+LDX #$40
+LDY #$40 
+LDA #EntityType::Slider
 JSR SpawnEntity
 
 
-ldx #.lobyte(music_data_silver_surfer_c_stephen_ruddy)
-ldy #.hibyte(music_data_silver_surfer_c_stephen_ruddy)
+
+
+ldx #<music_data_untitled
+ldy #>music_data_untitled
         
 lda #$01 ; NTSC
 jsr famistudio_init
 lda #$00
 jsr famistudio_music_play
 
-
-
-    ; Load screen also enables interrupts and rendering to finish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;; Main Loop
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
-Loop:
-    ; JSR famistudio_update
-    ; 
-    LDA #$3f
-    STA $2001
+Loop:    
     JSR DoGameLogic
     JSR Setrng
     ; DEC scrolly
@@ -390,8 +407,8 @@ Loop:
     ; JSR DoScroll       
     JSR OAMBuffer   ; Sprite data is written to the buffer here
     ; JSR WriteToTileBuffer ; write to the tile buffer when scrolling
-    LDA #$1E
-    STA $2001
+
+    
 ; Once the game logic loop is done, we hover here and wait for a vblank
 ; After a return from Vblank, we jump back to the logic loop    
 IsVBlankDone:
@@ -436,7 +453,7 @@ MAINLOOP:
     LDA #%10011110
     STA PPUMask ; reenable rendering for the ppu
     ;JSR SoundPlayFrame
-    ; JSR famistudio_update
+    JSR famistudio_update
     INC nmidone 
 
     ; Bring the stack values back into the registers
@@ -1441,47 +1458,40 @@ PlayerIdle:
     JMP EntityComplete
 
 Player2OnFloor:
+    LDA #$00
+    STA temp2 ; use temp 2 to see if we've pressed l/r
     ; Check if we're shooting this frame 
     JSR CheckBP2
     ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
+    CMP #ButtonReturn::Release
     BNE :+
         JSR PlayerAttemptSpawnFireball
     :
-    ; tick the animation timer
-    DEC entities+Entity::animationtimer, X
-    LDA entities+Entity::animationtimer, X
-    BNE :+
-    ; if timer = 0, animate
-    
-    LDA #$20 
-    STA entities+Entity::animationtimer, x
-    LDA entities+Entity::animationframe, X
-    EOR #$01 
-    STA entities+Entity::animationframe, X
-    : 
-    ; Move down and eject from floor
-    ; INC entities+Entity::ypos, X
-    LDA vylowp2
+    ; Move down and eject from floor and eject if needed
+    LDA vylowp2 ;load velocity subpixel
     CLC 
-    ADC #$0B
+    ADC #$20 ; move subpixeldown
     STA vylowp2
     LDA vyhighp2
-    ADC $00
-    CMP #$02
-    BCC :+
-    LDA #$02 
-    :
+    ; Do NOT set carry, retain it to seeif subpixeloverflowered
+    ADC #$00 ; if carry is set,this will add 1
     STA vyhighp2
+
+    LDA vylowp2
     CLC 
-    ADC entities+Entity::ypos, X
+    ADC yposlowp2
+    STA yposlowp2
+    LDA entities+Entity::ypos, X 
+    ADC #$00
+    ADC vyhighp2
     STA entities+Entity::ypos, X 
-    JSR CollideDown2
-    BEQ :+ ; dontallow jumping if we didnt collide this frame
-        ;If we collide down, 0 velocity
+
+    JSR CollideDown2 ; eject fro floor
+    BEQ :+ ; Skip ahead if we didn't hit the floor
+    ; Kill velocity
         LDA #$00
-        STA vxhighp2
-        STA vxlowp2
+        STA vyhighp2
+        STA vylowp2
     ; Check for jump
         JSR CheckAP2
         CMP #ButtonReturn::Press
@@ -1490,7 +1500,7 @@ Player2OnFloor:
             STA playerstatep2
             LDA #$00
             STA entities+Entity::generalpurpose, X
-            LDA #$04
+            LDA #$05
             STA entities+Entity::animationframe, X   
     :
 
@@ -1499,200 +1509,89 @@ Player2OnFloor:
     ; move right if pressed
     CMP #ButtonReturn::Press
     BNE :+
-        LDA #$01
+        INC temp2
+        LDA vxlowp2
         CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%00000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
+        ADC #$50
+        STA vxlowp2
+        LDA vxhighp2
+        ADC #$00
+        STA vxhighp2
+        ; Clamp veloctiy
+        CMP #$01
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlowp2
+        CMP #$30
+        BCC :+
+        LDA #$30
+        STA vxlowp2
     :
 
     ;Check Left Cl
     JSR CheckLeftP2
     CMP #ButtonReturn::Press
     BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
+        INC temp2
+        LDA vxlowp2
+        SEC 
+        SBC #$70
+        STA vxlowp2
+        LDA vxhighp2
+        SBC #$00
+        STA vxhighp2
+        ; Clamp veloctiy
+        CMP #$FF
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlowp2
+        CMP #$30
+        BCS :+
+        LDA #$30
+        STA vxlowp2
     :
+
+        ; Add to position
+    ; JSR PlayerXMovement
+        ; Eject from wall
+    JSR CollideLeft2
+    BEQ :+
+        ; If we ejected, zero velocity
+        LDA #$00
+        STA vxhighp2
+        STA vxlowp2
+    :    
+    JSR CollideRight2
+    BEQ :+
+        ; If we ejected, zero velocity
+        LDA #$00
+        STA vxhighp2
+        STA vxlowp2
+    :    
+
+
+
+    Player2OnFloorAnimate:
+    ; pick animation frame!
+    ; default frame
+    LDA #$00
+    STA entities+Entity::animationframe, X 
+    LDA vyhighp2
+    BEQ :+
+        LDA #$04
+        STA entities+Entity::animationframe, X
+        JMP EntityComplete
+    :
+
     JMP EntityComplete 
 Player2Jumping:
-    ; Check if we're shooting this frame 
-    JSR CheckBP2
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball  
-    :
-    LDA #$01
-    STA entities+Entity::animationframe, X
-    ; check if right is pressed
-    JSR CheckRightP2
-    CMP #ButtonReturn::Press
-    ; move right if pressed
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%01000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeftP2
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
-    ;eject from cieling 
-    JSR CheckAP2
-    ; CMP #ButtonReturn::Release
-    ; BNE :+
-    ;     LDA #$04
-    ;     STA playerstate
-    LDY entities+Entity::generalpurpose, X 
-    LDA JumpStrength, Y 
-    CMP #$01 ; iF 01 we've reached the end of the dataset
-    BNE :+ 
-    STA playerstatep2 ;1 is terminating so we can feed that back into the state
-    JMP EntityComplete
-    :
-    CLC 
-    ADC entities+Entity::ypos, X 
-    STA entities+Entity::ypos, X
-    INC entities+Entity::generalpurpose, X
-    JSR CollideUp2
-    BEQ :+
-    LDA #$03 ; enter headbonk state
-    STA playerstatep2
-    : 
     JMP EntityComplete
 Player2Headbonk:
-
-    ; Check if we're shooting this frame 
-    JSR CheckBP2
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball  
-    :
-    LDA #$01
-    STA entities+Entity::animationframe, X
-    ; check if right is pressed
-    JSR CheckRightP2
-    CMP #ButtonReturn::Press
-    ; move right if pressed
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%01000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeftP2
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
-
-    LDY entities+Entity::generalpurpose, X 
-    LDA HeadbonkStrength, Y 
-    CMP #$01
-    BNE :+
-    STA playerstatep2
-    JMP EntityComplete
-    :
-    CLC 
-    ADC entities+Entity::ypos, X
-    STA entities+Entity::ypos, X 
-    INC entities+Entity::generalpurpose, X 
-    JSR CollideUp2
     JMP EntityComplete
 
 Player2JumpReleased:
-    ; Check if we're shooting this frame 
-    JSR CheckB
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball  
-    :
-    LDA #$01
-    STA entities+Entity::animationframe, X
-    ; check if right is pressed
-    JSR CheckRight
-    CMP #ButtonReturn::Press
-    ; move right if pressed
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%01000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeft
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
-
-    LDY entities+Entity::generalpurpose, X 
-    LDA JumpStrengthReleased, Y 
-    CMP #$01
-    BNE :+
-    STA playerstate
-    JMP EntityComplete
-    :
-    CLC 
-    ADC entities+Entity::ypos, X
-    STA entities+Entity::ypos, X 
-    INC entities+Entity::generalpurpose, X 
-    JSR CollideUp2
     JMP EntityComplete
 
 Player2Disabled:
@@ -1702,258 +1601,13 @@ Player2Idle:
 
 ;;;; PLAYER 3 
 Player3OnFloor:
-    ; Check if we're shooting this frame 
-    JSR CheckBP3
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball
-    :
-    ; tick the animation timer
-    DEC entities+Entity::animationtimer, X
-    LDA entities+Entity::animationtimer, X
-    BNE :+
-    ; if timer = 0, animate
-    
-    LDA #$20 
-    STA entities+Entity::animationtimer, x
-    LDA entities+Entity::animationframe, X
-    EOR #$01 
-    STA entities+Entity::animationframe, X
-    : 
-    ; Move down and eject from floor
-    ; INC entities+Entity::ypos, X
-    LDA vylowp3
-    CLC 
-    ADC #$0B
-    STA vylowp3
-    LDA vyhighp3
-    ADC $00
-    CMP #$02
-    BCC :+
-    LDA #$02 
-    :
-    STA vyhighp3
-    CLC 
-    ADC entities+Entity::ypos, X
-    STA entities+Entity::ypos, X 
-    JSR CollideDown2
-    BEQ :+ ; dontallow jumping if we didnt collide this frame
-        ;If we collide down, 0 velocity
-        LDA #$00
-        STA vxhighp3
-        STA vxlowp3
-    ; Check for jump
-        JSR CheckAP3
-        CMP #ButtonReturn::Press
-        BEQ :+
-            LDA #$02
-            STA playerstatep3
-            LDA #$00
-            STA entities+Entity::generalpurpose, X
-            LDA #$04
-            STA entities+Entity::animationframe, X   
-    :
-
-    ; check if right is pressed
-    JSR CheckRightP3
-    ; move right if pressed
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%00000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeftP3
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
     JMP EntityComplete 
 Player3Jumping:
-    ; Check if we're shooting this frame 
-    JSR CheckBP3
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball  
-    :
-    LDA #$01
-    STA entities+Entity::animationframe, X
-    ; check if right is pressed
-    JSR CheckRightP3
-    CMP #ButtonReturn::Press
-    ; move right if pressed
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%01000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeftP3
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
-    ;eject from cieling 
-    JSR CheckAP3
-    ; CMP #ButtonReturn::Release
-    ; BNE :+
-    ;     LDA #$04
-    ;     STA playerstate
-    LDY entities+Entity::generalpurpose, X 
-    LDA JumpStrength, Y 
-    CMP #$01 ; iF 01 we've reached the end of the dataset
-    BNE :+ 
-    STA playerstatep3 ;1 is terminating so we can feed that back into the state
-    JMP EntityComplete
-    :
-    CLC 
-    ADC entities+Entity::ypos, X 
-    STA entities+Entity::ypos, X
-    INC entities+Entity::generalpurpose, X
-    JSR CollideUp2
-    BEQ :+
-    LDA #$03 ; enter headbonk state
-    STA playerstatep3
-    : 
     JMP EntityComplete
 Player3Headbonk:
-
-    ; Check if we're shooting this frame 
-    JSR CheckBP3
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball  
-    :
-    LDA #$01
-    STA entities+Entity::animationframe, X
-    ; check if right is pressed
-    JSR CheckRightP3
-    CMP #ButtonReturn::Press
-    ; move right if pressed
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%01000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeftP3
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
-
-    LDY entities+Entity::generalpurpose, X 
-    LDA HeadbonkStrength, Y 
-    CMP #$01
-    BNE :+
-    STA playerstatep3
-    JMP EntityComplete
-    :
-    CLC 
-    ADC entities+Entity::ypos, X
-    STA entities+Entity::ypos, X 
-    INC entities+Entity::generalpurpose, X 
-    JSR CollideUp2
     JMP EntityComplete
 
 Player3JumpReleased:
-    ; Check if we're shooting this frame 
-    JSR CheckB
-    ; if b, spawn fireball 
-    CMP #ButtonReturn::Press
-    BNE :+
-        JSR PlayerAttemptSpawnFireball  
-    :
-    LDA #$01
-    STA entities+Entity::animationframe, X
-    ; check if right is pressed
-    JSR CheckRight
-    CMP #ButtonReturn::Press
-    ; move right if pressed
-    BNE :+
-        LDA #$01
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos,X
-        LDA entities+Entity::attributes, X
-        AND #%01000000 
-        STA entities+Entity::attributes, X
-        ; Eject from wall
-        JSR CollideRight2
-    :
-
-    ;Check Left Cl
-    JSR CheckLeft
-    CMP #ButtonReturn::Press
-    BNE :+
-        LDA #$FF 
-        CLC 
-        ADC entities+Entity::xpos,X
-        STA entities+Entity::xpos, X
-        LDA #%01000000
-        ORA entities+Entity::attributes, X 
-        STA entities+Entity::attributes, X
-        JSR CollideLeft2
-    :
-
-    LDY entities+Entity::generalpurpose, X 
-    LDA JumpStrengthReleased, Y 
-    CMP #$01
-    BNE :+
-    STA playerstate
-    JMP EntityComplete
-    :
-    CLC 
-    ADC entities+Entity::ypos, X
-    STA entities+Entity::ypos, X 
-    INC entities+Entity::generalpurpose, X 
-    JSR CollideUp2
     JMP EntityComplete
 
 Player3Disabled:
@@ -2196,7 +1850,7 @@ SliderInit:
     LDA #$08
     STA entities+Entity::animationtimer, X
     LDA #$01 
-    LDA #%00000001
+    LDA #%00000010
     STA entities+Entity::collisionlayer, X 
     STA entities+Entity::generalpurpose, X 
     JMP EntityComplete
@@ -2320,11 +1974,12 @@ FireballMoveRight:
     CMP #$FF
     BEQ :+
     JSR AddEntityToDestructionStack
-    ; TXA 
-    ; JSR AddEntityToDestructionStack
+    TXA 
+    JSR AddEntityToDestructionStack
     DEC projectilecountp1
     JMP EntityComplete
     :
+
     ;Check for tiles
     JSR CollideRight2
     BEQ :+
@@ -3869,6 +3524,9 @@ RTS
 ; Collision
 ;;;;;;;;
 CollideLeft2:
+LDA #$3f
+    STA $2001
+    
     LDA #$00
     STA var_mem
     CollideLeft2Loop:
@@ -3998,6 +3656,9 @@ CollideLeft2:
         INC entities+Entity::xpos, X 
         JMP CollideLeft2Loop
     :
+
+    LDA #$1E
+    STA $2001
     LDA var_mem
     RTS 
 
@@ -4051,6 +3712,10 @@ CollideLeft:
     RTS 
 
 CollideRight2:
+LDA #$3f
+    STA $2001
+    
+
     LDA #$00
     STA var_mem
 
@@ -4186,6 +3851,9 @@ CollideRight2:
         DEC entities+Entity::xpos, X 
         JMP CollideRight2Loop
     :
+    LDA #$1E
+    STA $2001
+    
     LDA var_mem
     RTS 
 
@@ -4239,6 +3907,10 @@ CollideRight: ; only to be called dfrom process entities
     RTS 
 
 CollideDown2:
+
+    LDA #$3f
+    STA $2001
+    
     LDA #$00
     STA var_mem
 
@@ -4383,6 +4055,9 @@ CollideDown2:
         DEC entities+Entity::ypos, X 
         JMP CollideDown2Loop
     :
+    LDA #$1E
+    STA $2001
+    
     LDA var_mem
     RTS 
 
@@ -4677,20 +4352,19 @@ SpriteCollide:
     BNE :+
     JMP CollideSpriteComplete
     :
-
     CPX temp 
     BEQ CollideSpriteComplete
     LDA entities+Entity::type, X 
     BEQ CollideSpriteComplete
-
+    CLC
     LDA entities+Entity::xpos, X
     STA rectangle2
-    CLC 
+    ; CLC 
     ADC #$07
     STA rectangle2+1
     LDA entities+Entity::ypos, X
     STA rectangle2+2 
-    CLC 
+    ; CLC 
     ADC #$07
     STA rectangle2+3 
 
@@ -5535,7 +5209,7 @@ ScreenDefault: ; the  format of a screen is that each byte represents 1 meta til
 ScreenDefault2:
     .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
     .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$00,$00,$00,$00,$00,$23
-    .byte $24,$11,$31,$31,$30,$22,$11,$0E,$0F,$15,$00,$00,$31,$31,$00,$23
+    .byte $24,$11,$31,$31,$00,$00,$11,$0E,$0F,$15,$00,$00,$31,$31,$00,$23
     .byte $24,$00,$04,$05,$04,$05,$00,$10,$01,$00,$04,$05,$00,$04,$05,$23
     .byte $24,$00,$04,$05,$00,$00,$30,$30,$1D,$19,$1A,$21,$22,$19,$1A,$23
     .byte $24,$00,$04,$05,$00,$08,$09,$00,$05,$02,$00,$02,$10,$02,$00,$23
@@ -6044,7 +5718,7 @@ SpawnerSpeedRamp:
 
 .segment "SONG1"
 song_silver_surfer:
-.include "song_silver_surfer_ca65.s"
+.include "Testsong.s"
 
 .segment "DPCM"
 

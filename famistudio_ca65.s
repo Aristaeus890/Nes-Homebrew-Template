@@ -137,7 +137,7 @@ FAMISTUDIO_CFG_NTSC_SUPPORT  = 1
 ; FAMISTUDIO_CFG_SMOOTH_VIBRATO = 1 
 
 ; Enables DPCM playback support.
-FAMISTUDIO_CFG_DPCM_SUPPORT   = 1
+FAMISTUDIO_CFG_DPCM_SUPPORT   = 0
 
 ; Must be enabled if you are calling sound effects from a different thread than the sound engine update.
 ; FAMISTUDIO_CFG_THREAD         = 1     
@@ -211,7 +211,7 @@ FAMISTUDIO_USE_ARPEGGIO          = 1
 
 ; Memory location of the DPCM samples. Must be between $c000 and $ffc0, and a multiple of 64.
 .ifndef FAMISTUDIO_DPCM_OFF
-    FAMISTUDIO_DPCM_OFF = $c000
+    FAMISTUDIO_DPCM_OFF = $f000
 .endif
 
 ;======================================================================================================================

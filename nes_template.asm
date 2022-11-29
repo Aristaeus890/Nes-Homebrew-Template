@@ -38,6 +38,11 @@
     TeleporterP4 = 19
 .endscope
 
+.scope Banktype
+    GameBank = 0
+    TitleBank = 1
+.endscope
+
 
 .scope ButtonReturn
     NoPress = 0
@@ -87,6 +92,8 @@
     framecount: .res 1
     currentbank: .res 1
     oambufferoffset: .res 1
+    animationtrack: .res 1
+    animationtracktimer: .res 1
     xposlow: .res 1
     yposlow: .res 1
     xposlowp2: .res 1
@@ -122,15 +129,15 @@
     rng: .res 1 ; rng is stored here once a frame
     rectangle1: .res 4 
     rectangle2: .res 4
-
+    drawflags: .res 1 ; Change Bank ;
 
     PPUControl = $2000 
     PPUMask= $2001 
     PPUStatus = $2002
     OAMAddress =$2003
     OAMData = $2004
-    PPUAddress = $2005 
-    PPUScroll = $2006
+    PPUScroll = $2005
+    PPUAddress = $2006 
     PPUData = $2007 
     OAMDMA = $4014
 
@@ -140,25 +147,33 @@ SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
 
 .segment "RAM"
     ; SpriteBuffer: .res 256
-    ; TileBufferH: .res 16
-    ; CollisionMap: .res 240
-    ; CurrentBackgroundPalette: .res 16
-    ; SpawnerIndex: .res 1
-    ; SpawnerStack: .res 16
-    ; DestructionIndex: .res 1
-    ; DestructionStack: .res 5 
-    ; PlayerSpawnIndex: .res 1
-    ; PlayerSpawnStack: .res 4
+    TileBufferH: .res 16
+    CollisionMap: .res 240
+    CurrentBackgroundPalette: .res 16
+    SpawnerIndex: .res 1
+    SpawnerStack: .res 16
+    DestructionIndex: .res 1
+    DestructionStack: .res 5 
+    PlayerSpawnIndex: .res 1
+    PlayerSpawnStack: .res 4
+    ScoreP1: .res 1
+    ScoreP2: .res 1
+    ScoreP3: .res 1
+    ScoreP4: .res 1
+    GameTimer: .res 1
+    GameTimerDisplay: .res 4
+    GameTimerBuffer: .res 4
+    GameState: .res 1
     ; SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
-    TileBufferH = $0400 ; $0300 ->  ; Tiles that need to be written when the screen has scrolled are stored here
-    CollisionMap = $0410 ; 0310 -> 0400 ; 240 byte collision map for tile collision
-    CurrentBackgroundPalette = $05C0 ; -> 04CF
-    SpawnerIndex = $05D0 ; -> 04D0 
-    SpawnerStack = $05D1 ; -> 051D 3X15 bytes, x,y, entity
-    DestructionIndex = $061E ; -> 051E  
-    DestructionStack = $061F ; -> 0523 5 bytes  
-    PlayerSpawnIndex = $0624
-    PlayerSpawnStack = $0625 ; -> 0528 4 bytes
+    ; TileBufferH = $0400 ; $0300 ->  ; Tiles that need to be written when the screen has scrolled are stored here
+    ; CollisionMap = $0410 ; 0310 -> 0400 ; 240 byte collision map for tile collision
+    ; CurrentBackgroundPalette = $05C0 ; -> 04CF
+    ; SpawnerIndex = $05D0 ; -> 04D0 
+    ; SpawnerStack = $05D1 ; -> 051D 3X15 bytes, x,y, entity
+    ; DestructionIndex = $061E ; -> 051E  
+    ; DestructionStack = $061F ; -> 0523 5 bytes  
+    ; PlayerSpawnIndex = $0624
+    ; PlayerSpawnStack = $0625 ; -> 0528 4 bytes
 
 
 
@@ -215,15 +230,30 @@ CLEARMEM:
     STA OAMDMA
     NOP
 
-    ; $3F00
+    ; $3F00 == palette address
     LDA #$3F
-    STA $2006
+    STA PPUAddress
     LDA #$00
-    STA PPUScroll
+    STA PPUAddress
 
     LDX #$00
 
 .segment "CODE"
+; ; Constants 
+; .scope TileNumbers
+; NUMZERO = #F0
+; NUMONE = #F1
+; NUMTWO = #F2
+; NUMTHREE = #F3
+; NUMFOUR = #F4
+; NUMFIVE = #F5
+; NUMSIX = #F6
+; NUMSEVEN = #F7
+; NUMEIGHT = #F8
+; NUMNINE = #F9
+; NUMCOLON = #FB
+; .endscope
+
 
 LoadPalettes:
     FillPaletteRam:
@@ -274,9 +304,9 @@ InitWorld:
 ; setup address in PPU for nametable data
     BIT PPUStatus ; reading PPUStatus sets the latch to access scrolling and writing to the PPU 
     LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA PPUScroll
+    STA PPUAddress
     LDA #$00
-    STA PPUScroll
+    STA PPUAddress
 
     LDX #$00
     LDY #$00
@@ -284,9 +314,9 @@ InitWorld:
 SetAttributes:
     LDX #$00
     LDA #$23
-    STA PPUScroll
+    STA PPUAddress
     LDA #$C0
-    STA PPUScroll
+    STA PPUAddress
     AttributeLoop:
     LDA AttributesDefault, X 
     STA $2007
@@ -336,13 +366,16 @@ STA $A000
 
 
     LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA PPUScroll
+    STA PPUAddress
     LDA #$00
-    STA PPUScroll
+    STA PPUAddress
 
     JSR LoadSingleScreen
 
-
+    LDA #$00
+    STA currentbank
+    JSR SetBank
+    ; JSR SetMirroring
 
 LDA #$04
 JSR AddEntityToPlayerSpawnStack
@@ -355,30 +388,6 @@ LDA #$01
 JSR AddEntityToPlayerSpawnStack
 LDX #$50
 LDY #$40 
-LDA #EntityType::Slider
-JSR SpawnEntity
-LDX #$30
-LDY #$40 
-LDA #EntityType::Slider
-JSR SpawnEntity
-LDX #$40
-LDY #$50 
-LDA #EntityType::Slider
-JSR SpawnEntity
-LDX #$30
-LDY #$50 
-LDA #EntityType::Slider
-JSR SpawnEntity
-LDX #$20
-LDY #$50 
-LDA #EntityType::Slider
-JSR SpawnEntity
-
-LDX #$40
-LDY #$40 
-LDA #EntityType::Slider
-JSR SpawnEntity
-
 
 
 
@@ -390,24 +399,36 @@ jsr famistudio_init
 lda #$00
 jsr famistudio_music_play
 
+LDA #$09
+STA GameTimerDisplay
+LDA #$09
+STA GameTimerDisplay+1
+LDA #$09
+STA GameTimerDisplay+2
+LDA #$09
+STA GameTimerDisplay+3
+LDA #$09
+
+
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;; Main Loop
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
-Loop:    
-    JSR DoGameLogic
+Loop:
+    JSR ManageGameState
+    JSR SelectGameStatePath
     JSR Setrng
     ; DEC scrolly
     
     ; INC scrollx 
     JSR IncFrameCount   ; Counts to 59 then resets to 0
-    ; JSR AlternateBanks
-    ; JSR DoScroll       
+    ; JSR CheckForBankSwap       
     JSR OAMBuffer   ; Sprite data is written to the buffer here
-    ; JSR WriteToTileBuffer ; write to the tile buffer when scrolling
-
+    JSR famistudio_update
     
 ; Once the game logic loop is done, we hover here and wait for a vblank
 ; After a return from Vblank, we jump back to the logic loop    
@@ -438,13 +459,31 @@ MAINLOOP:
 
     LDA #$00
     STA PPUMask ; disable rendering before we access the ppu for safety
+    LDA #%11000000
+    STA PPUControl
 
     ;JSR DrawColumnNMI
     JSR ReadSprites ; Get the sprites from the sprite buffer and write them to the ppu  
+
+    ;Clock Update
+    LDA PPUStatus
+    LDA #$23
+    STA PPUAddress
+    LDA #$6D
+    STA PPUAddress
+    LDA GameTimerBuffer
+    STA PPUData
+    LDA GameTimerBuffer+1
+    STA PPUData
+    LDA GameTimerBuffer+2
+    STA PPUData
+    LDA GameTimerBuffer+3
+    STA PPUData
+
+    ; JSR UpdateClockNMI
     JSR ReadScroll  ; Send the current scroll to the ppu
     ;JSR UpdatePaletteNMI
     ;JSR LoadAttributesNMI
-
     LDA #%10010000
     ORA currenttable
     ORA #%00000100
@@ -453,7 +492,6 @@ MAINLOOP:
     LDA #%10011110
     STA PPUMask ; reenable rendering for the ppu
     ;JSR SoundPlayFrame
-    JSR famistudio_update
     INC nmidone 
 
     ; Bring the stack values back into the registers
@@ -479,15 +517,44 @@ ReadScroll:
     SetScroll:
     LDA PPUStatus ; reading from PPUStatus sets a latch that allows you to set the scroll in PPUAddress
     LDA scrollx
-    STA PPUAddress
+    STA PPUScroll
     LDA scrolly
-    STA PPUAddress
+    STA PPUScroll
 RTS
 
+UpdateClockNMI:
+    LDA PPUStatus
+    LDA #$23
+    STA PPUAddress
+    LDA #$6D
+    STA PPUAddress
+    LDA GameTimerBuffer
+    STA PPUData
+    LDA GameTimerBuffer+1
+    STA PPUData
+    LDA GameTimerBuffer+2
+    STA PPUData
+    LDA GameTimerBuffer+3
+    STA PPUData
+    RTS
 
 ;;;;;;;;;;;;;;;;;;;;
 ;; Functions to call in the main loop
 ;;;;;;;;;;;;;;;;;;;;
+
+ManageGameState:
+    JSR DecrementTimers
+RTS
+
+SelectGameStatePath:
+    LDA GameState
+    ASL 
+    TAY 
+    LDA GameStatePath, Y 
+    STA jumppointer
+    LDA GameStatePath+1, Y 
+    STA jumppointer+1
+    JMP (jumppointer)
 
 DoGameLogic:
     JSR ProcessSpawnStack
@@ -495,21 +562,87 @@ DoGameLogic:
     JSR ProcessEntities
     JSR ProcessDestructionStack
     JSR ProcessPlayerSpawnStack
-    JSR DecrementTimers
-    
-RTS
+    RTS 
 
 DecrementTimers:
-    LDA projectilecooldownp1
-    BEQ :+
-        DEC projectilecooldownp1
-    :
-    ; DEC 10frametimer
-    ; BCC :+
-    ; LDA #$0A 
-    ; STA
+    ; Do these every frame 
+    ; LDA projectilecooldownp1
+    ; BEQ :+
+    ;     DEC projectilecooldownp1
     ; :
-    RTS 
+ 
+   ; RTS
+    ; do these once per second 
+    ; LDA framecount
+    ; BEQ :+
+    ; RTS 
+    ; :
+    ; DEC GameTimer
+
+    LDA GameTimerDisplay+3
+    SEC 
+    SBC #$01
+    STA GameTimerDisplay+3
+
+    BCS ConvertTimer
+
+    LDA #$09
+    STA GameTimerDisplay+3
+    LDA GameTimerDisplay+2
+    SEC 
+    SBC #$01
+    STA GameTimerDisplay+2
+   
+    BCS ConvertTimer 
+
+    LDA #$06
+    STA GameTimerDisplay+2
+    LDA GameTimerDisplay+1
+    SEC 
+    SBC #$01
+    STA GameTimerDisplay+1
+
+    BCS ConvertTimer 
+
+    ; LDA #$09
+    ; STA GameTimerDisplay+1
+    ; LDA GameTimerDisplay
+    ; SEC 
+    ; SBC #$01
+    ; STA GameTimerDisplay
+
+    ; BCS ConvertTimer
+
+    ; LDA #$09
+    ; STA GameTimerDisplay
+
+    ConvertTimer:
+        LDA GameTimerDisplay
+        CLC 
+        ADC #$F0
+        STA GameTimerBuffer
+
+        LDA GameTimerDisplay+1
+        CLC 
+        ADC #$F0
+        STA GameTimerBuffer+1
+
+        LDA GameTimerDisplay+2
+        CLC 
+        ADC #$F0
+        STA GameTimerBuffer+2
+
+        LDA GameTimerDisplay+3
+        CLC 
+        ADC #$F0
+        STA GameTimerBuffer+3
+
+
+
+    RTS
+
+
+
 
 ProcessSpawnStack:
     ; LDY SpawnerIndex
@@ -624,7 +757,7 @@ NoSpawn:
 ; we never go here
 
 SpawnPlayerPort1:
-    LDX #$20
+    LDX #$10
     LDY #$20
     LDA #EntityType::Teleporter
     JSR SpawnEntity
@@ -885,6 +1018,8 @@ PlayerStateMachine:
     .word PlayerJumping
     .word PlayerHeadbonk
     .word PlayerJumpReleased
+    .word PlayerFalling
+    ; .word PlayerMoving
     .word PlayerDisabled
 
 Player2StateMachine:
@@ -990,8 +1125,11 @@ TeleportStateMachineP4:
 
 PlayerInit:
     LDA #%00000000
-    STA entities+Entity::attributes, X 
-    LDA #$08 
+    STA entities+Entity::attributes, X
+    ; STA animationtrack
+    LDA #$00
+    JSR InitAnimation
+    LDA #$10 
     STA entities+Entity::animationtimer, X  
     LDA #$01
     STA entities+Entity::collisionlayer, X 
@@ -1028,6 +1166,7 @@ Player4Init:
 
 PlayerOnFloor:
     LDA #$00
+    STA temp ;
     STA temp2 ; use temp 2 to see if we've pressed l/r
     ; Check if we're shooting this frame 
     JSR CheckB
@@ -1036,43 +1175,6 @@ PlayerOnFloor:
     BNE :+
         JSR PlayerAttemptSpawnFireball
     :
-    ; Move down and eject from floor and eject if needed
-    LDA vylow ;load velocity subpixel
-    CLC 
-    ADC #$20 ; move subpixeldown
-    STA vylow
-    LDA vyhigh 
-    ; Do NOT set carry, retain it to seeif subpixeloverflowered
-    ADC #$00 ; if carry is set,this will add 1
-    STA vyhigh
-
-    LDA vylow
-    CLC 
-    ADC yposlow
-    STA yposlow
-    LDA entities+Entity::ypos, X 
-    ADC #$00
-    ADC vyhigh
-    STA entities+Entity::ypos, X 
-
-    JSR CollideDown2 ; eject fro floor
-    BEQ :+ ; Skip ahead if we didn't hit the floor
-    ; Kill velocity
-        LDA #$00
-        STA vyhigh
-        STA vylow
-    ; Check for jump
-        JSR CheckA
-        CMP #ButtonReturn::Press
-        BNE :+
-            LDA #$02
-            STA playerstate
-            LDA #$00
-            STA entities+Entity::generalpurpose, X
-            LDA #$05
-            STA entities+Entity::animationframe, X   
-    :
-
     ; check if right is pressed
     JSR CheckRight
     ; move right if pressed
@@ -1096,7 +1198,14 @@ PlayerOnFloor:
         BCC :+
         LDA #$30
         STA vxlow
+        LDA #$01
+        JSR InitAnimation
     :
+    CMP ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$00
+    ;     JSR InitAnimation
+    ; :
 
     ;Check Left Cl
     JSR CheckLeft
@@ -1120,7 +1229,14 @@ PlayerOnFloor:
         BCS :+
         LDA #$30
         STA vxlow
+        LDA #$01
+        JSR InitAnimation
     :
+    CMP ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$00
+    ;     JSR InitAnimation
+    ; :
 
         ; Add to position
     JSR PlayerXMovement
@@ -1131,6 +1247,8 @@ PlayerOnFloor:
         LDA #$00
         STA vxhigh
         STA vxlow
+        ; LDA #$00
+        ; JSR InitAnimation
     :    
     JSR CollideRight2
     BEQ :+
@@ -1138,22 +1256,56 @@ PlayerOnFloor:
         LDA #$00
         STA vxhigh
         STA vxlow
-    :    
-
-
-
-    PlayerOnFloorAnimate:
-    ; pick animation frame!
-    ; default frame
-    LDA #$00
-    STA entities+Entity::animationframe, X 
-    LDA vyhigh
-    BEQ :+
-        LDA #$04
-        STA entities+Entity::animationframe, X
-        JMP EntityComplete
+        ; LDA #$00
+        ; JSR InitAnimation
     :
 
+        ; Move down and eject from floor and eject if needed
+    LDA vylow ;load velocity subpixel
+    CLC 
+    ADC #$20 ; move subpixeldown
+    STA vylow
+    LDA vyhigh 
+    ; Do NOT set carry, retain it to seeif subpixeloverflowered
+    ADC #$00 ; if carry is set,this will add 1
+    STA vyhigh
+
+    LDA vylow
+    CLC 
+    ADC yposlow
+    STA yposlow
+    LDA entities+Entity::ypos, X 
+    ADC #$00
+    ADC vyhigh
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::ypos, X
+    JSR CollideDown2 ; eject from floor
+    BNE :+ ; Skip ahead if we hit the floor
+        LDA #$05
+        STA playerstate
+        LDA #$04
+        JSR InitAnimation
+        JMP EntityComplete
+    :
+    ; Kill velocity
+    LDA #$00
+    STA vyhigh
+    STA vylow
+    ; Check for jump
+    JSR CheckA
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$02
+        STA playerstate
+        LDA #$00
+        STA entities+Entity::generalpurpose, X
+        LDA #$05
+        STA entities+Entity::animationframe, X
+        LDA #$03
+        JSR InitAnimation
+    :
+    
+    JSR AdvancePlayerAnimation
     JMP EntityComplete 
 PlayerJumping:
     LDA #$05 
@@ -1456,6 +1608,192 @@ PlayerDisabled:
     JMP EntityComplete
 PlayerIdle:
     JMP EntityComplete
+PlayerFalling:
+    ; check if right is pressed
+    JSR CheckRight
+    ; move right if pressed
+    CMP #ButtonReturn::Press
+    BNE :+
+        INC temp2
+        LDA vxlow
+        CLC 
+        ADC #$50
+        STA vxlow
+        LDA vxhigh
+        ADC #$00
+        STA vxhigh
+        ; Clamp veloctiy
+        CMP #$01
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlow
+        CMP #$30
+        BCC :+
+        LDA #$30
+        STA vxlow
+        LDA #$01
+        JSR InitAnimation
+    :
+    CMP ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$00
+    ;     JSR InitAnimation
+    ; :
+
+    ;Check Left Cl
+    JSR CheckLeft
+    CMP #ButtonReturn::Press
+    BNE :+
+        INC temp2
+        LDA vxlow
+        SEC 
+        SBC #$70
+        STA vxlow
+        LDA vxhigh
+        SBC #$00
+        STA vxhigh
+        ; Clamp veloctiy
+        CMP #$FF
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlow
+        CMP #$30
+        BCS :+
+        LDA #$30
+        STA vxlow
+        LDA #$01
+        JSR InitAnimation
+    :
+    CMP ButtonReturn::Release
+    ; BNE :+
+    ;     LDA #$00
+    ;     JSR InitAnimation
+    ; :
+
+        ; Add to position
+    JSR PlayerXMovement
+        ; Eject from wall
+    JSR CollideLeft2
+    BEQ :+
+        ; If we ejected, zero velocity
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+        ; LDA #$00
+        ; JSR InitAnimation
+    :    
+    JSR CollideRight2
+    BEQ :+
+        ; If we ejected, zero velocity
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+        ; LDA #$00
+        ; JSR InitAnimation
+    :
+
+
+    LDA vylow ;load velocity subpixel
+    CLC 
+    ADC #$20 ; move subpixeldown
+    STA vylow
+    LDA vyhigh 
+    ; Do NOT set carry, retain it to seeif subpixeloverflowered
+    ADC #$00 ; if carry is set,this will add 1
+    STA vyhigh
+
+    LDA vylow
+    CLC 
+    ADC yposlow
+    STA yposlow
+    LDA entities+Entity::ypos, X 
+    ADC #$00
+    ADC vyhigh
+    STA entities+Entity::ypos, X 
+
+    JSR CollideDown2
+    BNE :+
+        JSR AdvancePlayerAnimation
+        JMP EntityComplete
+    :
+    LDA #$01 
+    STA playerstate
+    LDA #$00
+    STA vyhigh
+    STA vylow
+    LDA #$05
+    JSR InitAnimation
+    JMP EntityComplete
+
+InitAnimation:
+    STA animationtrack
+ ; animation number in A 
+    ASL 
+    TAY 
+    LDA AnimationStringsPlayer, Y 
+    STA jumppointer
+    LDA AnimationStringsPlayer+1,Y 
+    STA jumppointer+1
+    LDY #$00
+    LDA (jumppointer), Y
+    STA entities+Entity::animationframe, X 
+    INY 
+    LDA (jumppointer), Y 
+    STA entities+Entity::animationtimer, X
+    LDA #$00
+    STA animationtracktimer
+
+RTS 
+
+AdvancePlayerAnimation:
+    DEC entities+Entity::animationtimer, X 
+    BEQ :+
+    RTS 
+    :
+
+    LDA animationtrack
+    ASL 
+    TAY 
+    LDA AnimationStringsPlayer, Y 
+    STA jumppointer
+    LDA AnimationStringsPlayer+1,Y 
+    STA jumppointer+1
+
+
+    LDA animationtracktimer
+    TAY 
+    LDA (jumppointer), Y
+    CMP #$FF 
+    BNE :+
+        LDA #$00
+        TAY 
+        LDA (jumppointer), Y 
+        STA entities+Entity::animationframe, X
+        INY 
+        LDA (jumppointer), Y 
+        STA entities+Entity::animationtimer, X
+        INY 
+        TYA
+        STA animationtracktimer
+        RTS
+    :
+    CMP #$FE 
+    BNE :+
+        INY 
+        LDA (jumppointer), Y 
+        JSR InitAnimation
+        RTS
+    :
+    STA entities+Entity::animationframe, X 
+    INY 
+    LDA (jumppointer), Y 
+    STA entities+Entity::animationtimer, X
+    INC animationtracktimer
+    INC animationtracktimer
+
+RTS 
 
 Player2OnFloor:
     LDA #$00
@@ -2363,7 +2701,6 @@ TeleportInit:
     LDA #$01
     STA entities+Entity::generalpurpose, X
     ; Eject from floor/wall, just in case.
-    JSR CollideDown2
     JSR CollideLeft2 
     JMP EntityComplete
 TeleportInitP2:
@@ -2626,7 +2963,7 @@ EndScreenLoad:
     ; LDA #%001`11110
     ; STA $PPUMask
 
-LDA #%10110000 ; enable NMI, change background to use second chr set of tiles ($1000)
+LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
 STA PPUControl
 ; Enabling sprites and background for left-most 8 pixels
 ; Enable sprites and background
@@ -2715,6 +3052,26 @@ IncFrameCount:
     STA framecount
 RTS 
 
+CheckForBankSwap:
+    LDA #%10000000
+    BIT drawflags
+    BEQ :+
+        RTS 
+    LDA currentbank
+    STA $A000
+    LSR
+    STA $A000
+    LSR
+    STA $A000
+    LSR
+    STA $A000
+    LSR
+    STA $A000
+    LDA #%10000000
+    EOR drawflags
+    STA drawflags
+RTS 
+
 AlternateBanks:
     LDA framecount
     BEQ :+
@@ -2728,7 +3085,7 @@ AlternateBanks:
 
 SetBank: ; sets A as the bank to be used
 ; lower 5 bits. lowest ignored in 8kb mode
-
+    LDA currentbank
     STA $A000
     LSR
     STA $A000
@@ -3524,8 +3881,8 @@ RTS
 ; Collision
 ;;;;;;;;
 CollideLeft2:
-LDA #$3f
-    STA $2001
+; LDA #$3f
+;     STA $2001
     
     LDA #$00
     STA var_mem
@@ -3657,8 +4014,8 @@ LDA #$3f
         JMP CollideLeft2Loop
     :
 
-    LDA #$1E
-    STA $2001
+    ; LDA #$1E
+    ; STA $2001
     LDA var_mem
     RTS 
 
@@ -3712,8 +4069,8 @@ CollideLeft:
     RTS 
 
 CollideRight2:
-LDA #$3f
-    STA $2001
+; LDA #$3f
+;     STA $2001
     
 
     LDA #$00
@@ -3851,8 +4208,8 @@ LDA #$3f
         DEC entities+Entity::xpos, X 
         JMP CollideRight2Loop
     :
-    LDA #$1E
-    STA $2001
+    ; LDA #$1E
+    ; STA $2001
     
     LDA var_mem
     RTS 
@@ -3908,8 +4265,8 @@ CollideRight: ; only to be called dfrom process entities
 
 CollideDown2:
 
-    LDA #$3f
-    STA $2001
+    ; LDA #$3f
+    ; STA $2001
     
     LDA #$00
     STA var_mem
@@ -4055,8 +4412,8 @@ CollideDown2:
         DEC entities+Entity::ypos, X 
         JMP CollideDown2Loop
     :
-    LDA #$1E
-    STA $2001
+    ; LDA #$1E
+    ; STA $2001
     
     LDA var_mem
     RTS 
@@ -4538,6 +4895,7 @@ DrawPlayer1:
     STA jumppointer
     LDA MetaSpriteListPlayer+1, Y
     STA jumppointer+1
+    LDY #$00
     LDA (jumppointer), Y 
     CMP #$FF
     BNE :+
@@ -4869,7 +5227,7 @@ ExplodeAndRespawn:
     JSR SpawnEntity
     JMP ProcessDestructionStack
 
-.include "famistudio_ca65.s"
+
 
 
 ;;;;;;;;;;;;
@@ -5230,12 +5588,17 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
     .byte %00100011, %10100000, %10000000, %00100000, %10000000, %10100000, %00000000, %10101000
     .byte %00110010, %10101010, %00100100, %00000001, %00000100, %10000101, %10000000, %10101001
     .byte %00100010, %00000000, %10000000, %00000010, %00001000, %00100000, %00000100, %10001001
-    .byte %00001010, %01011000, %01011010, %01011010, %01011010, %01011010, %01010010, %10001010
+    .byte %00001010, %01011000, %01011010, %11111010, %11111010, %01011010, %01010010, %10001010
     .byte %00101010, %00000000, %10101010, %00000000, %00000000, %10101010, %00000000, %10001010
 
 ;;;;;;;;;;;;
 ;;; LOOK UP TABLES
 ;;;;;;;;;;;
+
+GameStatePath:
+    .word DoGameLogic
+    .word DoGameLogic
+    .word DoGameLogic
 
 PlayerSpawnTable:
     .word NoSpawn
@@ -5329,6 +5692,15 @@ MetaSpriteListPlayer:
     .word PlayerSpriteJump ; 5
     .word PlayerSpriteSlide ; 6
     .word PlayerSpriteFire ; 
+
+AnimationStringsPlayer:
+    .word AnimationStringPlayerIdle
+    .word AnimationStringPlayerRunning
+    .word AnimationStringPlayerCrouching
+    .word AnimationStringPlayerJumping
+    .word AnimationStringPlayerFalling
+    .word AnimationStringPlayerFallingEnd
+    .word AnimationStringPlayerFiring
 
 MetaSpriteListPlayer2:
     .word Player2Sprite1
@@ -5442,14 +5814,35 @@ PlayerSpriteCrouch:
     .byte $00,$04,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 PlayerSpriteJump:
-    .byte $00,$05,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$06,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 PlayerSpriteSlide:
-    .byte $00,$07,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $00,$08,$00,$07
+    .byte $00,$08,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$09,$00,$07
     .byte $FF ; termination byte
 PlayerSpriteFire:
-    .byte $00,$06,$00,$00
+    .byte $00,$07,$00,$00
+    .byte $FF
+
+AnimationStringPlayerIdle:
+    .byte $00,$1A,$01,$1A,$FF ; Animation frame -> Timer FF=repeat
+AnimationStringPlayerRunning:
+    .byte $02,$08,$03,$08,$FF
+AnimationStringPlayerCrouching:
+    .byte $01 ; animation length
+    .byte $04
+    .byte $FF ; loop
+AnimationStringPlayerJumping:
+    .byte $01 ; animation frame
+    .byte $05 ; ani length
+    .byte $FF ; loop
+AnimationStringPlayerFalling:
+    .byte $00,$80,$FF
+AnimationStringPlayerFallingEnd:
+    .byte $04,$09,$FE,$00
+AnimationStringPlayerFiring:
+    .byte $01 ; animation length
+    .byte $07
     .byte $FF
 
 Player2Sprite1:
@@ -5715,12 +6108,13 @@ HeadbonkStrength:
 SpawnerSpeedRamp:
     .byte $01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$FF
 
+.include "famistudio_ca65.s"
+.include "testsong.s"
+
 
 .segment "SONG1"
-song_silver_surfer:
-.include "Testsong.s"
-
-.segment "DPCM"
+; 
+; .segment "DPCM"
 
 
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 
@@ -5729,4 +6123,5 @@ song_silver_surfer:
      
 .segment "CHARS" ; sprite/tile data goes here
     .incbin "castle_set-bank1.chr"
-    .incbin "castle_set-bank2.chr"
+    ; .incbin "castle_set-bank2.chr"
+    .incbin "title_screen_bank.chr"

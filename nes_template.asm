@@ -8,12 +8,25 @@
 .byte $1a
 .byte $02 ; 2 * 16KB PRG ROM
 .byte $02 ; 2 * 8KB CHR ROMF
-.byte %00010011 ; mapper and mirroring
+.byte %01000011 ; mapper and mirroring
 .byte $00 ; unused extension
 .byte $00 ; unused extension
 .byte $00 ; unused extension
 .byte "<"
 .byte "3Matt" ; filler bytes to fill out the end of the header
+
+.scope Numbers
+    Zero = 240
+    One = 241 
+    Two = 242 
+    Three = 243
+    Four = 244
+    Five = 245
+    Six = 246
+    Seven = 247
+    Eight = 248 
+    Nine = 249
+.endscope
 
 .scope EntityType ; NB this should match the order in the process entity list in order for the jump table to hit the right address
     NoEntity = 0
@@ -36,6 +49,21 @@
     TeleporterP2 = 17
     TeleporterP3 = 18
     TeleporterP4 = 19
+    Hat = 20
+    Scoretextp1 = 21
+    Scorenumberp1 = 22
+    Scoretextp2 = 23
+    Scorenumberp2 = 24
+    Scoretextp3 = 25
+    Scorenumber3 = 26
+    Scoretextp4 = 27
+    Scorenumberp4 = 28
+.endscope
+
+.scope GState
+    GameStateTitleScreen = 0
+    GameStateMapSelect = 1
+    GameStateGame = 2
 .endscope
 
 .scope Banktype
@@ -43,6 +71,10 @@
     TitleBank = 1
 .endscope
 
+.scope PlayerflagVal
+    NoDraw = 1
+    DrawWithHat = 2 
+.endscope
 
 .scope ButtonReturn
     NoPress = 0
@@ -54,12 +86,35 @@
     type .byte ; each entity has its own type assigned, if you somehow make more than 255 entities than idk what to do
     xpos .byte ; x position
     ypos .byte ; y position
+    xpossub .byte 
+    ypossub .byte 
     attributes .byte ;
     collisionlayer .byte ; which of the 4 active palettes this sprite should use
     generalpurpose .byte ; this has no specific use, it can be defined on a per entity basis
     animationframe .byte
     animationtimer .byte
+    flags .byte 
 .endstruct
+
+.scope EntityFlags
+    NoDraw = 1
+    NoProcess = 2
+    FlipH = 4 
+    FlipV = 8
+    ; a = 16
+    ; b = 32 
+    ; c = 64 
+    ; d = 128
+.endscope
+
+.scope DFlags
+    NoDraw = 0
+    ClearVertTiles1 = 1
+    ClearVertTiles2 = 2
+    WriteVertTiles1 = 3
+    WriteVertTiles2 = 4
+    FillTileBuffer = 3
+.endscope
 
 .segment "ZEROPAGE" ; 0-FF. One page of ram that is faster access than rest of the ram. Use for values most frequently used
     MAXENTITIES =15; max allowed number of entities. Each entity takes a number of bytes in the zero page equal to the entity struct
@@ -69,9 +124,10 @@
     entity_mem = .sizeof(Entity) * MAXENTITIES ; mem used
 
     world: .res 2 ; this is a pointer to the address of the current screen we want to fetch tiles on
+    metatilepointer: .res 2
     seed: .res 2 ; the seed for the pseudo rng. This will be inited to anything by 0 later
     jumppointer: .res 2 ; used to jump to specic places in memory with jump tables
-    jumppointer2: .res 2
+    MetaspritePointer: .res 2
     nmidone: .res 1 ; value to check to see if the nmi is done
     scrollx: .res 1 ; how far the screen is scrolled in x dir
     scrolly: .res 1 ; how far the screen is scrolled in y dir
@@ -84,11 +140,11 @@
     buttonflagp2: .res 1
     buttonflagp3: .res 1 
     buttonflagp4: .res 1 
-    currenttable: .res 1
+    currenttable: .res 2
     currentrowodd: .res 1 ; holds the currrent row when drawing tiles
     currentroweven: .res 1
     currentcollisionaddress: .res 2
-    
+    tilebufferindex: .res 1
     framecount: .res 1
     currentbank: .res 1
     oambufferoffset: .res 1
@@ -103,7 +159,8 @@
     vyhigh: .res 1 
     vylow: .res 1
     xdir: .res 1
-    playerstate: .res 1
+    playerjumptrack: .res 1
+    playerflags: .res 1
     projectilecountp1: .res 1
     projectilecooldownp1: .res 1
     vxlowp2: .res 1
@@ -129,7 +186,11 @@
     rng: .res 1 ; rng is stored here once a frame
     rectangle1: .res 4 
     rectangle2: .res 4
-    drawflags: .res 1 ; Change Bank ;
+    DrawFlags: .res 1 ; 
+    CurrentColumnHigh: .res 1
+    CurrentColumnLow: .res 1
+    AttributesAddressHigh: .res 1
+    AttributesAddressLow: .res 1
 
     PPUControl = $2000 
     PPUMask= $2001 
@@ -141,41 +202,49 @@
     PPUData = $2007 
     OAMDMA = $4014
 
+    IRQLATCH = $C000
+    IRQRELOAD = $C001
+    IRQDISABLE = $E000
+    IRQENABLE = $E001
+
+    BANKSELECT = $8000
+    BANKDATA = $8001
+    MIRRORING = $A000
+    PRGRAMPROTECT = $A001
+
 .segment "OAM"
 SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
-; SpriteBuffer = $0200
 
 .segment "RAM"
-    ; SpriteBuffer: .res 256
-    TileBufferH: .res 16
+    GameTimer: .res 2
+    GameTimerConverted: .res 2
+    GameTimerAddress: .res 2
     CollisionMap: .res 240
     CurrentBackgroundPalette: .res 16
+    TileBuffer: .res 32
+    TileBuffer2: .res 32
+    AttributeBuffer: .res 16
     SpawnerIndex: .res 1
     SpawnerStack: .res 16
     DestructionIndex: .res 1
     DestructionStack: .res 5 
     PlayerSpawnIndex: .res 1
     PlayerSpawnStack: .res 4
-    ScoreP1: .res 1
-    ScoreP2: .res 1
-    ScoreP3: .res 1
-    ScoreP4: .res 1
-    GameTimer: .res 1
-    GameTimerDisplay: .res 4
-    GameTimerBuffer: .res 4
+    ScoreP1: .res 3
+    ScoreP1Converted: .res 2
+    ScoreP2: .res 3
+    ScoreP2Converted: .res 2
+    ScoreP3: .res 3
+    ScoreP3Converted: .res 2
+    ScoreP4: .res 3
+    ScoreP4Converted: .res 2
+    ScorePickerState: .res 1
     GameState: .res 1
-    ; SpriteBuffer = $0200 ;$0200 -> $02FF ; A page of ram that will contain sprite info that will be read to the ppu each frame
-    ; TileBufferH = $0400 ; $0300 ->  ; Tiles that need to be written when the screen has scrolled are stored here
-    ; CollisionMap = $0410 ; 0310 -> 0400 ; 240 byte collision map for tile collision
-    ; CurrentBackgroundPalette = $05C0 ; -> 04CF
-    ; SpawnerIndex = $05D0 ; -> 04D0 
-    ; SpawnerStack = $05D1 ; -> 051D 3X15 bytes, x,y, entity
-    ; DestructionIndex = $061E ; -> 051E  
-    ; DestructionStack = $061F ; -> 0523 5 bytes  
-    ; PlayerSpawnIndex = $0624
-    ; PlayerSpawnStack = $0625 ; -> 0528 4 bytes
-
-
+    InvincibilityTimerP1: .res 1
+    InvincibilityTimerP2: .res 1
+    InvincibilityTimerP3: .res 1
+    InvincibilityTimerP4: .res 1
+    
 
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
@@ -239,21 +308,24 @@ CLEARMEM:
     LDX #$00
 
 .segment "CODE"
-; ; Constants 
-; .scope TileNumbers
-; NUMZERO = #F0
-; NUMONE = #F1
-; NUMTWO = #F2
-; NUMTHREE = #F3
-; NUMFOUR = #F4
-; NUMFIVE = #F5
-; NUMSIX = #F6
-; NUMSEVEN = #F7
-; NUMEIGHT = #F8
-; NUMNINE = #F9
-; NUMCOLON = #FB
-; .endscope
 
+LDA #$20
+STA CurrentColumnHigh
+LDA #$00
+STA CurrentColumnLow
+
+LDA #$23
+STA AttributesAddressHigh
+LDA #$C0
+STA AttributesAddressLow
+
+LDA #<MetaTileListTitle
+STA metatilepointer
+LDA #>MetaTileListTitle
+STA metatilepointer+1
+
+; JSR SwapLeftBankToTitle
+; JSR SwapRightBankToTitle
 
 LoadPalettes:
     FillPaletteRam:
@@ -270,30 +342,14 @@ LoadPalettes:
         CPX #$20
         BNE LoadtoPPU 
 
-SetMirroring: ; TODO make sure this actually works? mmc1 is weird
-    ;LDA #$80
-    ;STA $8000
-    LDA #%10000000
-    STA $8000
-
-    ; MMC1 is nearly unique in that to configure it you have to do serial writes to the same port
-
-    LDA #%00000010  
-    STA $8000
-    LSR
-    STA $8000
-    LSR 
-    STA $8000
-    LSR 
-    STA $8000
-    LSR 
-    STA $8000
-
 ; For the prng to work, it needs a seed of any nonzero number to start at
 InitSeed: 
     LDA #$08
     STA seed
     STA seed+1
+
+
+
 
 InitWorld:
     LDA #< ScreenDefault ; take the low byte
@@ -321,75 +377,25 @@ SetAttributes:
     LDA AttributesDefault, X 
     STA $2007
     INX
-    CPX #$40
+    CPX #64
     BNE AttributeLoop
 
-    LDX #$00
-    LDY #$00    
 
-; Set Control
-; to configure MMC1 mapper, we need to write to 8000 repeatedly
-LDA #%00000010 ; This configures it to horizontal mirroring, 32kb of prg rom and two 8kb chr banks
-
-STA $8000
-LSR 
-STA $8000
-LSR 
-STA $8000
-LSR 
-STA $8000
-LSR 
-STA $8000
-
-; Set Bank to firstbank
-LDA #%00000010
-
-STA $A000
-LSR
-STA $A000
-LSR
-STA $A000
-LSR
-STA $A000
-LSR
-STA $A000
-
-    LDA #<ScreenDefault2
-    STA world 
-    LDA #>ScreenDefault2
-    STA world +1
-
-    LDA #<CollisionMap 
-    STA currentcollisionaddress
-    LDA #>CollisionMap
-    STA currentcollisionaddress+1
+LDA #<ScreenDefault
+STA world
+LDA #>ScreenDefault
+STA world+1
+JSR LoadCollisionData
 
 
+    BIT PPUControl
     LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
     STA PPUAddress
     LDA #$00
     STA PPUAddress
 
-    JSR LoadSingleScreen
 
-    LDA #$00
-    STA currentbank
-    JSR SetBank
-    ; JSR SetMirroring
-
-LDA #$04
-JSR AddEntityToPlayerSpawnStack
-
-LDA #$03
-JSR AddEntityToPlayerSpawnStack
-LDA #$02
-JSR AddEntityToPlayerSpawnStack
-LDA #$01
-JSR AddEntityToPlayerSpawnStack
-LDX #$50
-LDY #$40 
-
-
+JSR InitTitleScreen
 
 ldx #<music_data_untitled
 ldy #>music_data_untitled
@@ -399,18 +405,30 @@ jsr famistudio_init
 lda #$00
 jsr famistudio_music_play
 
-LDA #$09
-STA GameTimerDisplay
-LDA #$09
-STA GameTimerDisplay+1
-LDA #$09
-STA GameTimerDisplay+2
-LDA #$09
-STA GameTimerDisplay+3
-LDA #$09
+LDA #$02
+STA playerflags
+
+
+LDA #$BF 
+STA IRQLATCH
+STA IRQRELOAD
+STA IRQDISABLE
+STA IRQENABLE
 
 
 
+
+
+; LDA #$00
+; LDA #DFlags::ClearVertTiles1
+; STA DrawFlags
+
+; Enable Rendering
+LDA #%10010000
+STA PPUControl
+LDA #%00111110
+STA PPUMask
+CLI
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;; Main Loop
@@ -419,14 +437,11 @@ LDA #$09
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
-    JSR ManageGameState
+    ; JSR ManageGameState
     JSR SelectGameStatePath
     JSR Setrng
-    ; DEC scrolly
-    
-    ; INC scrollx 
+    JSR FillTileBuffer
     JSR IncFrameCount   ; Counts to 59 then resets to 0
-    ; JSR CheckForBankSwap       
     JSR OAMBuffer   ; Sprite data is written to the buffer here
     JSR famistudio_update
     
@@ -452,47 +467,94 @@ MAINLOOP:
     PHA
     TXA 
     PHA 
-    TYA 
+    TYA
     PHA
 
     
 
     LDA #$00
     STA PPUMask ; disable rendering before we access the ppu for safety
-    LDA #%11000000
+
+    ; Check if we're drawing new tiles via jump table
+    LDA DrawFlags
+    ASL 
+    TAY 
+    LDA NMIDrawCommands, Y 
+    STA jumppointer
+    LDA NMIDrawCommands+1, Y 
+    STA jumppointer+1
+    JMP (jumppointer)
+
+    NMIDrawCommandReturnPoint:
+
+    ; write clock to screen
+    LDA #%00010000
+    STA PPUControl
+    BIT PPUStatus
+    LDA GameTimerAddress
+    STA PPUAddress
+    LDA GameTimerAddress+1
+    STA PPUAddress
+    LDA GameTimerConverted
+    STA PPUData
+    LDA GameTimerConverted+1
+    STA PPUData
+
+; SCORES
+    BIT PPUStatus
+    LDA #$20
+    STA PPUAddress
+    LDA #$02
+    STA PPUAddress
+    LDA ScoreP1Converted
+    STA PPUData
+    LDA ScoreP1Converted+1
+    STA PPUData
+
+
+    LDA #$BF 
+    STA IRQLATCH
+    STA IRQRELOAD
+    STA IRQENABLE
+
+    JSR ReadSprites ; Get the sprites from the sprite buffer and write them to the ppu  
+    
+    ; Write scores to screen
+    ; BIT PPUStatus
+    ; LDA #$23
+    ; STA PPUAddress
+    ; LDA #$6C
+    ; STA PPUAddress
+
+    ; LDA #$FC
+    ; STA PPUData
+    ; LDA #$F1
+    ; STA PPUData
+    ; LDA #$EC
+    ; STA PPUData
+    ; LDA #$F0
+    ; STA PPUData
+    ; LDA #$F1 
+    ; STA PPUData
+
+    ; LDA #%10010000
+    ; ORA currenttable
+    ; ORA #%00000100
+    ; STA PPUControl ; ???
+
+    LDA #%10010100
     STA PPUControl
 
-    ;JSR DrawColumnNMI
-    JSR ReadSprites ; Get the sprites from the sprite buffer and write them to the ppu  
-
-    ;Clock Update
-    LDA PPUStatus
-    LDA #$23
-    STA PPUAddress
-    LDA #$6D
-    STA PPUAddress
-    LDA GameTimerBuffer
-    STA PPUData
-    LDA GameTimerBuffer+1
-    STA PPUData
-    LDA GameTimerBuffer+2
-    STA PPUData
-    LDA GameTimerBuffer+3
-    STA PPUData
-
-    ; JSR UpdateClockNMI
-    JSR ReadScroll  ; Send the current scroll to the ppu
-    ;JSR UpdatePaletteNMI
-    ;JSR LoadAttributesNMI
-    LDA #%10010000
-    ORA currenttable
-    ORA #%00000100
-    STA PPUControl ; ???
+    BIT PPUStatus
+    LDA #$00
+    STA PPUScroll
+    STA PPUScroll
 
     LDA #%10011110
     STA PPUMask ; reenable rendering for the ppu
-    ;JSR SoundPlayFrame
     INC nmidone 
+
+
 
     ; Bring the stack values back into the registers
     PLA
@@ -522,25 +584,266 @@ ReadScroll:
     STA PPUScroll
 RTS
 
-UpdateClockNMI:
-    LDA PPUStatus
-    LDA #$23
+NMIDrawCommands:
+    .word NMINoCommand ; 0 
+    .word NMIClearVerticalColumn1
+    .word NMIClearVerticalColumn2
+    .word NMIWriteVertTiles1 ; 3
+
+TriggerVerticalNMIDraw:
+LDA DrawFlags
+EOR #DFlags::ClearVertTiles2
+STA DrawFlags
+lda #$01 
+sta CurrentColumnLow
+RTS
+
+NMINoCommand:
+    JMP NMIDrawCommandReturnPoint
+
+NMIClearVerticalColumn1:
+    ;Set up the next address to write to
+    BIT PPUStatus
+    LDA CurrentColumnHigh
     STA PPUAddress
-    LDA #$6D
+    LDA CurrentColumnLow
     STA PPUAddress
-    LDA GameTimerBuffer
+    LDA #%00010100
+    STA PPUControl
+    LDX #30
+    LDA #$EC
+    :
+    STA PPUData 
+    DEX 
+    BNE :- 
+    LDA CurrentColumnLow
+    CLC 
+    ADC #$02
+    STA CurrentColumnLow
+    CMP #32
+    BNE :+
+    LDA #$01 
+    STA CurrentColumnLow
+    ; LDA #DFlags::ClearVertTiles2
+    LDA #$02
+    STA DrawFlags
+    :
+JMP NMIDrawCommandReturnPoint
+
+NMIClearVerticalColumn2:
+    BIT PPUStatus
+    LDA CurrentColumnHigh
+    STA PPUAddress
+    LDA CurrentColumnLow
+    STA PPUAddress
+    LDA #%00010100
+    STA PPUControl
+    LDX #30
+    LDA #$EC
+    :
+    STA PPUData 
+    DEX 
+    BNE :- 
+    LDA CurrentColumnLow
+    CLC 
+    ADC #$02
+    STA CurrentColumnLow
+    CMP #33
+    BNE :+
+    LDA #$20
+    STA CurrentColumnHigh
+    LDA #$00
+    STA CurrentColumnLow
+    LDA #$00
+    STA currentroweven
+    ; LDA #DFlags::WriteVertTiles1
+    LDA #$03
+    STA DrawFlags
+    ; LDA DrawFlags
+    ; EOR #DFlags::FillTileBuffer
+    ; STA DrawFlags
+    :
+JMP NMIDrawCommandReturnPoint
+
+NMIWriteVertTiles1:
+    LDA #%00010000
+    STA PPUControl
+    BIT PPUStatus
+    LDA CurrentColumnHigh
+    STA PPUAddress
+    LDA CurrentColumnLow
+    STA PPUAddress
+    ; LDX #
+    LDY #31
+    :
+    LDA TileBuffer, Y
     STA PPUData
-    LDA GameTimerBuffer+1
+    DEY
+    LDA TileBuffer, Y
     STA PPUData
-    LDA GameTimerBuffer+2
+    DEY
+    BPL :-
+
+    LDY #31
+    :
+    LDA TileBuffer2, Y
     STA PPUData
-    LDA GameTimerBuffer+3
+    DEY
+    LDA TileBuffer2, Y
     STA PPUData
-    RTS
+    DEY 
+    BPL :-
+
+    LDA CurrentColumnLow
+    CLC 
+    ADC #$40
+    sta CurrentColumnLow
+    LDA CurrentColumnHigh
+    ADC #$00
+    sta CurrentColumnHigh
+    LDA currentroweven
+    CLC 
+    ADC #$10
+    STA currentroweven
+
+    ;check if we're at the end
+    LDA CurrentColumnLow
+    CMP #$C0 
+    BNE :+
+    LDA CurrentColumnHigh
+    CMP #$23
+    BNE :+
+    LDA #$00
+    STA DrawFlags
+    :
+JMP NMIDrawCommandReturnPoint
+
+NMIWriteVertTiles2:
+JMP NMIDrawCommandReturnPoint
+
+IRQ:
+    PHA 
+    BIT PPUStatus
+    LDA #$00
+    STA PPUScroll
+    STA PPUScroll
+    STA IRQDISABLE
+    PLA 
+RTI
 
 ;;;;;;;;;;;;;;;;;;;;
 ;; Functions to call in the main loop
 ;;;;;;;;;;;;;;;;;;;;
+
+;;;
+; Initialisation
+;;;
+InitTitleScreen:
+;Clear all sprite entities
+LDX #$00
+LDA #$00
+:
+STA entities, X
+INX 
+CPX #entity_mem
+BNE :-
+
+STA ScoreP1
+STA ScoreP2
+STA ScoreP3
+STA ScoreP4
+
+LDA #<MetaTileListTitle
+STA metatilepointer
+LDA #>MetaTileListTitle
+sta metatilepointer+1
+
+LDA #$20
+STA CurrentColumnHigh
+LDA #$00
+STA CurrentColumnLow
+
+LDA #<TitleScreen
+STA world
+LDA #>TitleScreen
+STA world+1
+
+jsr SwapLeftBankToTitle
+JSR SwapRightBankToTitle
+LDA #$03
+STA DrawFlags
+
+LDA #GState::GameStateTitleScreen
+STA GameState
+
+RTS 
+
+
+InitGameHat:
+LDX #$40
+LDY #$10
+LDA #EntityType::Player 
+JSR SpawnEntity
+
+LDX #$80
+LDY #$a0
+LDA #EntityType::LightningEmitter
+jsr SpawnEntity
+LDX #$80
+LDY #$80 
+LDA #EntityType::Slider
+jsr SpawnEntity
+LDX #$80
+LDY #$10
+LDA #EntityType::Scoretextp1
+jsr SpawnEntity
+
+
+
+LDA #$00
+STA ScoreP1
+STA ScoreP2
+STA ScoreP3
+STA ScoreP4
+
+LDA #$00
+LDX #$00
+
+LDA #$03
+STA DrawFlags
+LDA #GState::GameStateGame
+STA GameState
+
+LDA #<MetaTileList
+STA metatilepointer
+LDA #>MetaTileList
+sta metatilepointer+1
+
+LDA #$20
+STA CurrentColumnHigh
+LDA #$00
+STA CurrentColumnLow
+
+LDA #9
+STA GameTimer+1
+LDA #2
+STA GameTimer 
+
+LDA #$20
+STA GameTimerAddress
+LDA #$0F
+STA GameTimerAddress+1
+
+LDA #<ScreenDefault
+STA world
+LDA #>ScreenDefault
+STA world+1
+
+jsr SwapLeftBankToGame
+JSR SwapRightBankToGame
+
+RTS
+
 
 ManageGameState:
     JSR DecrementTimers
@@ -556,92 +859,198 @@ SelectGameStatePath:
     STA jumppointer+1
     JMP (jumppointer)
 
+DoTitleLogic:
+    JSR ReadButtons
+    JSR ProcessEntities
+    JSR ProcessTitleInput
+
+DoMapSelectLogic:
+    JSR ReadButtons
+    JSR ProcessEntities
+    JSR ProcessMapSelectInput
+
 DoGameLogic:
     JSR ProcessSpawnStack
     JSR ReadButtons
+    JSR DecrementTimers
     JSR ProcessEntities
     JSR ProcessDestructionStack
     JSR ProcessPlayerSpawnStack
+    JSR CheckForGameEnd
+
     RTS 
 
-DecrementTimers:
-    ; Do these every frame 
-    ; LDA projectilecooldownp1
-    ; BEQ :+
-    ;     DEC projectilecooldownp1
-    ; :
- 
-   ; RTS
-    ; do these once per second 
-    ; LDA framecount
-    ; BEQ :+
-    ; RTS 
-    ; :
-    ; DEC GameTimer
+ProcessMapSelectInput:
+RTS
 
-    LDA GameTimerDisplay+3
-    SEC 
-    SBC #$01
-    STA GameTimerDisplay+3
-
-    BCS ConvertTimer
-
-    LDA #$09
-    STA GameTimerDisplay+3
-    LDA GameTimerDisplay+2
-    SEC 
-    SBC #$01
-    STA GameTimerDisplay+2
-   
-    BCS ConvertTimer 
-
-    LDA #$06
-    STA GameTimerDisplay+2
-    LDA GameTimerDisplay+1
-    SEC 
-    SBC #$01
-    STA GameTimerDisplay+1
-
-    BCS ConvertTimer 
-
-    ; LDA #$09
-    ; STA GameTimerDisplay+1
-    ; LDA GameTimerDisplay
-    ; SEC 
-    ; SBC #$01
-    ; STA GameTimerDisplay
-
-    ; BCS ConvertTimer
-
-    ; LDA #$09
-    ; STA GameTimerDisplay
-
-    ConvertTimer:
-        LDA GameTimerDisplay
-        CLC 
-        ADC #$F0
-        STA GameTimerBuffer
-
-        LDA GameTimerDisplay+1
-        CLC 
-        ADC #$F0
-        STA GameTimerBuffer+1
-
-        LDA GameTimerDisplay+2
-        CLC 
-        ADC #$F0
-        STA GameTimerBuffer+2
-
-        LDA GameTimerDisplay+3
-        CLC 
-        ADC #$F0
-        STA GameTimerBuffer+3
-
-
-
+ProcessTitleInput:
+    JSR CheckStart
+    CMP #ButtonReturn::Release
+    LDA rng
+    CMP #$FF
+    BNE :+
+        JSR InitGameHat
+    :
     RTS
 
+; a = jump table destination/2 
+; x = amount to change by
+ChangeScore:
+    STX temp
+    TAY 
+    ASL 
+    LDA ScoreJumpTable, Y 
+    STA jumppointer
+    LDA ScoreJumpTable+1, Y 
+    STA jumppointer+1
+    JMP (jumppointer)
 
+ConvertScoreP1:
+    LDA ScoreP1+1
+    CLC 
+    ADC #$F0 
+    STA ScoreP1Converted+1
+
+    LDA ScoreP1
+    CLC 
+    ADC #$F0 
+    STA ScoreP1Converted
+RTS
+
+ScoreJumpTable:
+    .word AddScorep1
+    .word AddScorep2
+    .word AddScorep3
+    .word AddScorep4
+    .word SubScorep1
+    .word SubScorep2
+    .word SubScorep3
+    .word SubScorep4
+
+AddScorep1:
+    LDA ScoreP1+1
+    CLC 
+    ADC temp 
+    STA ScoreP1+1
+    LDA ScoreP1
+    ADC #$00
+    STA ScoreP1
+    JMP ConvertScoreP1
+
+
+AddScorep2:
+    LDA ScoreP2+1
+    CLC 
+    ADC temp 
+    STA ScoreP2+1
+    LDA ScoreP2
+    ADC #$00
+    STA ScoreP2
+    RTS 
+
+AddScorep3:
+    LDA ScoreP3+1
+    CLC 
+    ADC temp 
+    STA ScoreP3+1
+    LDA ScoreP3
+    ADC #$00
+    STA ScoreP3
+    RTS 
+
+AddScorep4:
+    LDA ScoreP4+1
+    CLC 
+    ADC temp 
+    STA ScoreP4+1
+    LDA ScoreP4
+    ADC #$00
+    STA ScoreP4
+    RTS 
+
+SubScorep1:
+    LDA ScoreP1+1
+    SEC 
+    SBC temp
+    STA ScoreP1+1
+    LDA ScoreP1
+    SBC #$00
+    STA ScoreP1
+    JMP ConvertScoreP1
+
+SubScorep2:
+    LDA ScoreP1+1
+    SEC 
+    SBC temp
+    STA ScoreP1+1
+    LDA ScoreP1
+    SBC #$00
+    STA ScoreP1
+RTS
+
+SubScorep3:
+    LDA ScoreP1+1
+    SEC 
+    SBC temp
+    STA ScoreP1+1
+    LDA ScoreP1
+    SBC #$00
+    STA ScoreP1
+RTS
+
+SubScorep4:
+    LDA ScoreP1+1
+    SEC 
+    SBC temp
+    STA ScoreP1+1
+    LDA ScoreP1
+    SBC #$00
+    STA ScoreP1
+RTS
+
+
+DecrementTimers:
+    LDA framecount
+    BNE :+
+    LDA GameTimer+1
+    SEC
+    SBC #$01
+    STA GameTimer+1
+    LDA GameTimer
+    SBC #$00
+    STA GameTimer
+    :
+    LDA GameTimer+1
+    CMP #10
+    BCC :+
+    LDA #9
+    STA GameTimer+1
+    :
+
+    ;convert timer
+    LDA GameTimer+1 
+    CLC 
+    ADC #$F0 
+    STA GameTimerConverted+1
+    LDA GameTimer
+    CLC 
+    ADC #$F0 
+    STA GameTimerConverted
+
+RTS
+
+CheckForGameEnd:
+    LDA GameTimer+1
+    BNE :+
+    LDA GameTimer
+    BNE :+
+    LDA #9
+    STA GameTimer+1
+    LDA #2
+    STA GameTimer
+    JSR InitTitleScreen
+    :
+RTS
 
 
 ProcessSpawnStack:
@@ -736,17 +1145,17 @@ ProcessPlayerSpawnStack:
     BEQ :+
     RTS
     :
-    LDX PlayerSpawnIndex
+    LDY PlayerSpawnIndex
     BEQ EndProcessPlayerSpawnStack
     PlayerSpawnStackLoop:
-    DEC PlayerSpawnIndex
-    LDA PlayerSpawnIndex, X  
+    LDA PlayerSpawnIndex, Y  
     ASL 
-    TAX
-    LDA PlayerSpawnTable, X
+    TAY
+    LDA PlayerSpawnTable, Y
     STA jumppointer
-    LDA PlayerSpawnTable+1, X
+    LDA PlayerSpawnTable+1, Y
     STA jumppointer+1
+    DEC PlayerSpawnIndex
     JMP (jumppointer)
 
 EndProcessPlayerSpawnStack:
@@ -757,7 +1166,7 @@ NoSpawn:
 ; we never go here
 
 SpawnPlayerPort1:
-    LDX #$10
+    LDX #$20
     LDY #$20
     LDA #EntityType::Teleporter
     JSR SpawnEntity
@@ -784,219 +1193,166 @@ SpawnPlayerPort4:
     JSR SpawnEntity
     RTS
 
+; memory selection in x
+; new bank in y
+SwapBank:
+    STX BANKSELECT
+    STY BANKDATA
+RTS
+
+SwapLeftBankToGame:
+LDX #%00000000
+LDY #$08
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000001
+LDY #$0A
+STX BANKSELECT
+STY BANKDATA
+RTS
+
+SwapRightBankToGame:
+LDX #%00000010
+LDY #$0C
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000011
+LDY #$0D
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000100
+LDY #$0E
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000101
+LDY #$0F
+STX BANKSELECT
+STY BANKDATA
+
+RTS
+
+SwapLeftBankToTitle:
+LDX #%00000000
+LDY #$00
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000001
+LDY #$02
+STX BANKSELECT
+STY BANKDATA
+RTS
+
+SwapRightBankToTitle:
+LDX #%00000010
+LDY #$04
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000011
+LDY #$05
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000100
+LDY #$06
+STX BANKSELECT
+STY BANKDATA
+
+LDX #%00000101
+LDY #$07
+STX BANKSELECT
+STY BANKDATA
+
+RTS
+
+
+
+SetMirroring:
+
+RTS
+
+;;MATHS
+;; Entities
+
+; value to add in A 
+EntityAddSubX:
+    CLC 
+    ADC entities+Entity::xpossub, X 
+    STA entities+Entity::xpossub, X 
+    LDA entities+Entity::xpos, X 
+    ADC #$00
+    STA entities+Entity::xpos, X
+RTS
+EntityMinusSubX:
+    SEC 
+    SBC entities+Entity::ypossub, X 
+    STA entities+Entity::ypossub, X 
+    LDA entities+Entity::xpos, X 
+    SBC #$00
+    STA entities+Entity::xpos, X
+RTS
+EntityAddSubY:
+    CLC 
+    ADC entities+Entity::ypossub, X 
+    STA entities+Entity::ypossub, X 
+    LDA entities+Entity::ypos, X 
+    ADC #$00
+    STA entities+Entity::ypos, X
+RTS
+EntityMinusSubY:
+    SEC 
+    SBC entities+Entity::ypossub, X 
+    STA entities+Entity::ypossub, X 
+    LDA entities+Entity::ypos, X 
+    SBC #$00
+    STA entities+Entity::ypos, X
+RTS
 
 ProcessEntities:
     LDX #$00
     ProcessEntitiesLoop:
-        LDA entities+Entity::type, X ; load the current entity type
+
+        ; LDA entities+Entity::type, X
+        ; ASL ; transfer current entity type to y
+        ; TAY  
+        ; LDA ProcessEntityList, Y ; use y as a jump pointer to jump to the process function for that entity!
+        ; STA jumppointer
+        ; LDA ProcessEntityList+1, Y 
+        ; STA jumppointer+1 
+        ; JMP (jumppointer)
+
+        LDA entities+Entity::type, X
+        BNE :+
+        JMP EntityComplete
+        :
         ASL ; transfer current entity type to y
         TAY  
-        LDA ProcessEntityList, Y ; use y as a jump pointer to jump to the process function for that entity!
+        LDA StateMachineList, Y ; use y as a jump pointer to jump to the process function for that entity!
         STA jumppointer
-        LDA ProcessEntityList+1, Y 
+        LDA StateMachineList+1, Y 
         STA jumppointer+1 
+
+        LDA entities+Entity::generalpurpose, X 
+        ASL 
+        TAY 
+        LDA (jumppointer), Y
+        PHA 
+        INY 
+        LDA (jumppointer), Y 
+        STA jumppointer+1
+        PLA 
+        STA jumppointer
         JMP (jumppointer)
 
     SkipEntity:
         JMP EntityComplete
 
-    ProcessPlayer:
-        LDA playerstate
-        ASL 
-        TAY 
-        LDA PlayerStateMachine, Y
-        STA jumppointer
-        LDA PlayerStateMachine+1, Y
-        STA jumppointer+1
-        JMP (jumppointer)
-    ProcessPlayer2:
-        LDA playerstatep2
-        ASL 
-        TAY 
-        LDA Player2StateMachine, Y
-        STA jumppointer
-        LDA Player2StateMachine+1, Y
-        STA jumppointer+1
-        JMP (jumppointer)
-    ProcessPlayer3:
-        LDA playerstatep3
-        ASL 
-        TAY 
-        LDA Player3StateMachine, Y
-        STA jumppointer
-        LDA Player3StateMachine+1, Y
-        STA jumppointer+1
-        JMP (jumppointer)
-    ProcessPlayer4:
-        LDA playerstatep4
-        ASL 
-        TAY 
-        LDA Player4StateMachine, Y
-        STA jumppointer
-        LDA Player4StateMachine+1, Y
-        STA jumppointer+1
-        JMP (jumppointer)
-    ProcessSlider:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA SliderStateMachine, Y 
-        STA jumppointer
-        LDA SliderStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
 
-
-    ProcessProjectileSpell:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA ProjectileSpellStateMachine, Y 
-        STA jumppointer
-        LDA ProjectileSpellStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-    
-    ProcessExplosion:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA ExplosionStateMachine, Y 
-        STA jumppointer
-        LDA ExplosionStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessLightningEmitter:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA LightningEmitterStateMachine, Y 
-        STA jumppointer
-        LDA LightningEmitterStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessSparks:
-        ; TXA 
-        ; JSR AddEntityToDestructionStack
-
-        DEC entities+Entity::animationtimer, X
-        LDA entities+Entity::animationtimer, X
-        BPL :+
-        LDA #$02
-        STA entities+Entity::animationtimer, X
-        LDA #$01 
-        EOR entities+Entity::animationframe, X
-        STA entities+Entity::animationframe, X
-        INC entities+Entity::generalpurpose, X
-        LDA entities+Entity::generalpurpose, X
-        CMP #$05
-        BNE :+
-        TXA 
-        JSR AddEntityToDestructionStack
-        :
-    JMP EntityComplete
-
-    ProcessLightning:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA LightningStateMachine, Y 
-        STA jumppointer
-        LDA LightningStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessFireball:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA FireBallStateMachine, Y 
-        STA jumppointer
-        LDA FireBallStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-    
-    ProcessRespawner:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA RespawnerStateMachine, Y 
-        STA jumppointer
-        LDA RespawnerStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessPortal:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA RespawnerPortalStateMachine, Y 
-        STA jumppointer
-        LDA RespawnerPortalStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessBroomStick:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA RespawnerBroomStickStateMachine, Y 
-        STA jumppointer
-        LDA RespawnerBroomStickStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessIceBeam:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA IceBeamStateMachine, Y 
-        STA jumppointer
-        LDA IceBeamStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessTeleporter:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA TeleportStateMachine, Y 
-        STA jumppointer
-        LDA TeleportStateMachine+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessTeleporterP2:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA TeleportStateMachineP2, Y 
-        STA jumppointer
-        LDA TeleportStateMachineP2+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessTeleporterP3:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA TeleportStateMachineP3, Y 
-        STA jumppointer
-        LDA TeleportStateMachineP3+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
-
-    ProcessTeleporterP4:
-        LDA entities+Entity::generalpurpose, X
-        ASL 
-        TAY 
-        LDA TeleportStateMachineP4, Y 
-        STA jumppointer
-        LDA TeleportStateMachineP4+1, Y 
-        STA jumppointer+1 
-        JMP (jumppointer)
 
     ; End step of processing an entity
     ; We shift the current x offset back into A, add the size of the entity struct, then put it back in A
@@ -1012,15 +1368,41 @@ ProcessEntities:
     :
 RTS
 
+StateMachineList:
+    .word PlayerStateMachine ; dummy
+    .word PlayerStateMachine
+    .word Player2StateMachine
+    .word Player3StateMachine
+    .word Player4StateMachine
+    .word SliderStateMachine
+    .word ProjectileSpellStateMachine
+    .word ExplosionStateMachine
+    .word LightningEmitterStateMachine
+    .word SparkStateMachine ;;;
+    .word LightningStateMachine
+    .word FireBallStateMachine
+    .word RespawnerStateMachine
+    .word RespawnerPortalStateMachine
+    .word RespawnerBroomStickStateMachine
+    .word IceBeamStateMachine
+    .word TeleportStateMachine
+    .word TeleportStateMachineP2
+    .word TeleportStateMachineP3
+    .word TeleportStateMachineP4
+    .word HatStateMachine
+    .word ScoreTextStateMachine
+    .word ScoreNumberStateMachine
+
+
 PlayerStateMachine:
-    .word PlayerInit
-    .word PlayerOnFloor
-    .word PlayerJumping
-    .word PlayerHeadbonk
-    .word PlayerJumpReleased
-    .word PlayerFalling
-    ; .word PlayerMoving
-    .word PlayerDisabled
+    .word PlayerInit;0
+    .word PlayerOnFloor ;1
+    .word PlayerJumping ;2
+    .word PlayerHeadbonk ;3
+    .word PlayerJumpReleased ;4
+    .word PlayerFalling ;5
+    .word PlayerMoving ; 6
+    .word PlayerDisabled ;7
 
 Player2StateMachine:
     .word Player2Init 
@@ -1060,6 +1442,11 @@ LightningStateMachine:
     .word LightningInit
     .word LightningExtending
     .word LightningFlashing
+
+SparkStateMachine:
+    .word SparkInit
+    .word SparkSpark
+
 
 SliderStateMachine:
     .word SliderInit
@@ -1121,6 +1508,23 @@ TeleportStateMachineP4:
     .word TeleportRaise
     .word TeleportSpawnP4
     .word TeleportLower
+
+HatStateMachine:
+    .word HatInit
+    .word HatAttachedToP1
+    .word HatWaiting
+    ; .word HatfollowingP1
+    ; .word HatfollowingP2
+    ; .word HatfollowingP3
+    ; .word HatfollowingP4
+    ; .word HatKnockedOff
+
+ScoreTextStateMachine:
+    .word ScoreTextp1Init
+     
+ScoreNumberStateMachine:
+    .word ScoreNumberp1Init
+    .word ScoreNumberp1Wait
 ; Entity Behaviours
 
 PlayerInit:
@@ -1134,7 +1538,7 @@ PlayerInit:
     LDA #$01
     STA entities+Entity::collisionlayer, X 
     LDA #$01
-    STA playerstate
+    STA entities+Entity::generalpurpose, X
     JMP EntityComplete
 
 Player2Init:
@@ -1165,78 +1569,40 @@ Player4Init:
     JMP EntityComplete
 
 PlayerOnFloor:
-    LDA #$00
-    STA temp ;
-    STA temp2 ; use temp 2 to see if we've pressed l/r
     ; Check if we're shooting this frame 
     JSR CheckB
     ; if b, spawn fireball 
     CMP #ButtonReturn::Release
-    BNE :+
-        JSR PlayerAttemptSpawnFireball
+    BEQ :+
+        ; JSR PlayerAttemptSpawnFireball
     :
     ; check if right is pressed
     JSR CheckRight
     ; move right if pressed
     CMP #ButtonReturn::Press
     BNE :+
-        INC temp2
-        LDA vxlow
-        CLC 
-        ADC #$50
-        STA vxlow
-        LDA vxhigh
-        ADC #$00
-        STA vxhigh
-        ; Clamp veloctiy
-        CMP #$01
-        BNE :+
-        ; LDA #$01
-        ; STA vxhigh
-        LDA vxlow
-        CMP #$30
-        BCC :+
-        LDA #$30
-        STA vxlow
-        LDA #$01
+        LDA entities+Entity::attributes,X 
+        AND #%01000000
+        STA entities+Entity::attributes,X
+        LDA #$06 
+        STA entities+Entity::generalpurpose, X
+        LDA #$01 
         JSR InitAnimation
     :
-    CMP ButtonReturn::Release
-    ; BNE :+
-    ;     LDA #$00
-    ;     JSR InitAnimation
-    ; :
 
     ;Check Left Cl
     JSR CheckLeft
     CMP #ButtonReturn::Press
     BNE :+
-        INC temp2
-        LDA vxlow
-        SEC 
-        SBC #$70
-        STA vxlow
-        LDA vxhigh
-        SBC #$00
-        STA vxhigh
-        ; Clamp veloctiy
-        CMP #$FF
-        BNE :+
-        ; LDA #$01
-        ; STA vxhigh
-        LDA vxlow
-        CMP #$30
-        BCS :+
-        LDA #$30
-        STA vxlow
+        LDA entities+Entity::attributes,X 
+        EOR #%01000000
+        STA entities+Entity::attributes,X
+        
+        LDA #$06
+        STA entities+Entity::generalpurpose, X
         LDA #$01
         JSR InitAnimation
     :
-    CMP ButtonReturn::Release
-    ; BNE :+
-    ;     LDA #$00
-    ;     JSR InitAnimation
-    ; :
 
         ; Add to position
     JSR PlayerXMovement
@@ -1282,7 +1648,7 @@ PlayerOnFloor:
     JSR CollideDown2 ; eject from floor
     BNE :+ ; Skip ahead if we hit the floor
         LDA #$05
-        STA playerstate
+        STA entities+Entity::generalpurpose, X
         LDA #$04
         JSR InitAnimation
         JMP EntityComplete
@@ -1296,9 +1662,9 @@ PlayerOnFloor:
     CMP #ButtonReturn::Press
     BNE :+
         LDA #$02
-        STA playerstate
-        LDA #$00
         STA entities+Entity::generalpurpose, X
+        LDA #$00
+        STA playerjumptrack
         LDA #$05
         STA entities+Entity::animationframe, X
         LDA #$03
@@ -1360,21 +1726,21 @@ PlayerJumping:
         JSR CollideLeft2
     :
     ; Do y movement
-    LDY entities+Entity::generalpurpose, X 
+    LDY playerjumptrack 
     LDA JumpStrength, Y 
     CMP #$01 ; iF 01 we've reached the end of the dataset
     BNE :+ 
-    STA playerstate ;1 is terminating so we can feed that back into the state
+    STA entities+Entity::generalpurpose, X ;1 is terminating so we can feed that back into the state
     JMP EntityComplete
     :
     CLC 
     ADC entities+Entity::ypos, X 
     STA entities+Entity::ypos, X
-    INC entities+Entity::generalpurpose, X
+    INC playerjumptrack
     JSR CollideUp2
     BEQ :+
     LDA #$03 ; enter headbonk state
-    STA playerstate
+    STA entities+Entity::generalpurpose, X
     : 
     JMP EntityComplete
 PlayerHeadbonk:
@@ -1418,17 +1784,17 @@ PlayerHeadbonk:
         JSR CollideLeft2
     :
 
-    LDY entities+Entity::generalpurpose, X 
+    LDY playerjumptrack 
     LDA HeadbonkStrength, Y 
     CMP #$01
     BNE :+
-    STA playerstate
+    STA entities+Entity::generalpurpose, X
     JMP EntityComplete
     :
     CLC 
     ADC entities+Entity::ypos, X
     STA entities+Entity::ypos, X 
-    INC entities+Entity::generalpurpose, X 
+    INC playerjumptrack
     JSR CollideUp2
     JMP EntityComplete
 
@@ -1472,17 +1838,17 @@ PlayerJumpReleased:
         JSR CollideLeft2
     :
 
-    LDY entities+Entity::generalpurpose, X 
+    LDY playerjumptrack
     LDA JumpStrengthReleased, Y 
     CMP #$01
     BNE :+
-    STA playerstate
+    STA entities+Entity::generalpurpose, X
     JMP EntityComplete
     :
     CLC 
     ADC entities+Entity::ypos, X
     STA entities+Entity::ypos, X 
-    INC entities+Entity::generalpurpose, X 
+    INC playerjumptrack
     JSR CollideUp2
     JMP EntityComplete
 
@@ -1608,6 +1974,123 @@ PlayerDisabled:
     JMP EntityComplete
 PlayerIdle:
     JMP EntityComplete
+PlayerMoving:
+    JSR CheckRight
+    CMP #ButtonReturn::Press
+    BNE :+
+        INC temp2
+        LDA vxlow
+        CLC 
+        ADC #$50
+        STA vxlow
+        LDA vxhigh
+        ADC #$00
+        STA vxhigh
+        ; Clamp veloctiy
+        CMP #$01
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlow
+        CMP #$30
+        BCC :+
+        LDA #$30
+        STA vxlow
+    :
+    CMP ButtonReturn::Release
+    BNE :+
+        LDA #$00
+        JSR InitAnimation
+        LDA #$01 
+        STA entities+Entity::generalpurpose, X
+        JMP EntityComplete
+    :
+    ; check left 
+    JSR CheckLeft
+    CMP #ButtonReturn::Press
+    BNE :+
+        INC temp2
+        LDA vxlow
+        SEC 
+        SBC #$70
+        STA vxlow
+        LDA vxhigh
+        SBC #$00
+        STA vxhigh
+        ; Clamp veloctiy
+        CMP #$FF
+        BNE :+
+        ; LDA #$01
+        ; STA vxhigh
+        LDA vxlow
+        CMP #$30
+        BCS :+
+        LDA #$30
+        STA vxlow
+    :
+    JSR PlayerXMovement
+    JSR CollideLeft2
+    BEQ :+
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+    :   
+
+    JSR CollideRight2
+    BEQ :+
+        LDA #$00
+        STA vxhigh
+        STA vxlow
+    :   
+
+        ; Move down and eject from floor and eject if needed
+    LDA vylow ;load velocity subpixel
+    CLC 
+    ADC #$20 ; move subpixeldown
+    STA vylow
+    LDA vyhigh 
+    ; Do NOT set carry, retain it to seeif subpixeloverflowered
+    ADC #$00 ; if carry is set,this will add 1
+    STA vyhigh
+
+    LDA vylow
+    CLC 
+    ADC yposlow
+    STA yposlow
+    LDA entities+Entity::ypos, X 
+    ADC #$00
+    ADC vyhigh
+    STA entities+Entity::ypos, X 
+    INC entities+Entity::ypos, X
+    JSR CollideDown2 ; eject from floor
+    BNE :+ ; Skip ahead if we hit the floor
+        LDA #$05
+        STA entities+Entity::generalpurpose, X
+        LDA #$04
+        JSR InitAnimation
+        JMP EntityComplete
+    :
+    ; Kill velocity
+    LDA #$00
+    STA vyhigh
+    STA vylow
+    ; Check for jump
+    JSR CheckA
+    CMP #ButtonReturn::Press
+    BNE :+
+        LDA #$02
+        STA entities+Entity::generalpurpose, X
+        LDA #$00
+        STA playerjumptrack
+        LDA #$05
+        STA entities+Entity::animationframe, X
+        LDA #$03
+        JSR InitAnimation
+    :
+    
+    JSR AdvancePlayerAnimation
+    JMP EntityComplete 
+
 PlayerFalling:
     ; check if right is pressed
     JSR CheckRight
@@ -1718,11 +2201,25 @@ PlayerFalling:
         JSR AdvancePlayerAnimation
         JMP EntityComplete
     :
-    LDA #$01 
-    STA playerstate
     LDA #$00
     STA vyhigh
     STA vylow
+    JSR CheckRight
+    BNE :+
+    LDA #$06 
+    STA entities+Entity::generalpurpose, X
+    LDA #$05 
+    JSR InitAnimation
+    JMP EntityComplete
+    :
+    JSR CheckLeft
+    BNE :+
+    LDA #$06 
+    STA entities+Entity::generalpurpose, X
+    LDA #$05 
+    JSR InitAnimation
+    JMP EntityComplete
+    :
     LDA #$05
     JSR InitAnimation
     JMP EntityComplete
@@ -1981,14 +2478,24 @@ PlayerAttemptSpawnFireball:
     PHA 
     LDA entities+Entity::attributes, X 
     STA temp 
+    LDA entities+Entity::collisionlayer, x
+    STA temp2
     LDA entities+Entity::ypos, X
     SEC 
     SBC #$01
     TAY 
+    LDA entities+Entity::attributes, X
+    AND #%0100000
+    BPL :+
+        LDA entities+Entity::xpos, X 
+        TAX
+        JMP :++
+    : 
     LDA entities+Entity::xpos, X 
     CLC 
-    ADC #$09 
+    ADC #$07
     TAX 
+    :
     LDA #EntityType::Fireball
     JSR SpawnEntity
     LDA #$50
@@ -2167,7 +2674,7 @@ LightningExtending:
 LightningFlashing:
     JSR SpriteCollide
     BEQ :+
-    JSR AddEntityToDestructionStack
+    ; JSR AddEntityToDestructionStack
     :
     DEC entities+Entity::animationtimer, X
     BPL EndLightningFlashing
@@ -2181,6 +2688,30 @@ LightningFlashing:
     JSR AddEntityToDestructionStack
 EndLightningFlashing:
     JMP EntityComplete
+
+SparkInit:
+    LDA #$01 
+    STA entities+Entity::generalpurpose, X
+SparkSpark:
+        DEC entities+Entity::animationtimer, X
+        LDA entities+Entity::animationtimer, X
+        BPL :+
+        LDA #$02
+        STA entities+Entity::animationtimer, X
+        LDA #$01 
+        EOR entities+Entity::animationframe, X
+        STA entities+Entity::animationframe, X
+        INC entities+Entity::generalpurpose, X
+        LDA entities+Entity::generalpurpose, X
+        CMP #$05
+        BNE :+
+        TXA 
+        JSR AddEntityToDestructionStack
+        :
+    JMP EntityComplete
+
+
+
 
 SliderInit:
     LDA #%00000001
@@ -2273,8 +2804,10 @@ ExplosionExplode:
 FireballInit:
     LDA #$08 
     STA entities+Entity::animationtimer, X
-    LDA #%00001110 ; collide with p2 3 and 4
-    STA entities+Entity::collisionlayer, x
+    LDA entities+Entity::collisionlayer,X
+    EOR #$FF 
+    AND #%00001111
+    STA entities+Entity::collisionlayer, X
     LDA entities+Entity::attributes, X
     STA temp 
     LDA #%01000000 
@@ -2836,6 +3369,54 @@ TeleportSpawnP4:
     STA entities+Entity::generalpurpose,X
     JMP EntityComplete
 
+HatInit:
+    LDA #$01
+    STA entities+Entity::generalpurpose
+    JMP EntityComplete
+HatWaiting:
+    INC entities+Entity::animationtimer, X 
+    LDY entities+Entity::animationtimer, X 
+    CPY #$1E
+    BEQ :+
+    LDA Sin, Y 
+    CLC 
+    ADC entities+Entity::ypos, X
+    STA entities+Entity::ypos, X
+    JMP EntityComplete
+    :
+    LDA #$00
+    STA entities+Entity::animationtimer, X
+    JMP EntityComplete
+
+HatAttachedToP1:
+    TXA 
+    TAY
+    LDA #EntityType::Player
+    JSR EntityFindEntity
+    LDA entities+Entity::xpos, Y 
+    STA entities+Entity::xpos, X
+    LDA entities+Entity::ypos, Y
+    SEC 
+    SBC #$05 
+    STA entities+Entity::ypos, X
+    JMP EntityComplete
+
+HatKnockedOff:
+    JMP EntityComplete
+
+ScoreTextp1Init:
+    ; LDA #$01
+    ; STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
+ScoreNumberp1Init:
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
+ScoreNumberp1Wait:
+    JMP EntityComplete
+
 ClearEntity:
     ; wasteful but safer to clear all and not just type
     LDA #$00 
@@ -2849,6 +3430,39 @@ ClearEntity:
     STA entities+Entity::animationtimer, X
     JMP EntityComplete
 
+; finds the first entity of any type
+; 
+; a = type of entity you want to find
+; y = your own index value to avoid finding yourself
+; destroys a
+; returns index in Y
+EntityFindEntity:
+    STA temp
+    TXA 
+    PHA
+    STY temp2 
+    LDX #$00
+    EntityFindEntityLoop:
+        CPX temp2
+        BEQ :+
+        LDA entities+Entity::type, X 
+        CMP #EntityType::Player
+        BEQ :++
+    :
+    TXA
+    CLC 
+    ADC #.sizeof(Entity)
+    TAX 
+    CMP #entity_mem
+    BEQ :+
+    JMP EntityFindEntityLoop
+    :
+    TXA 
+    TAY
+    PLA 
+    TAX 
+RTS 
+    
 
 ; BEFORE CALL:
 ;  - load screen data address into 'world'
@@ -2956,13 +3570,6 @@ LoadSingleScreen:
  
 
 EndScreenLoad:
-    ; LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
-    ; STA PPUControl
-    ; ; Enabling sprites and background for left-most 8 pixels
-    ; ; Enable sprites and background
-    ; LDA #%001`11110
-    ; STA $PPUMask
-
 LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
 STA PPUControl
 ; Enabling sprites and background for left-most 8 pixels
@@ -2970,6 +3577,21 @@ STA PPUControl
 LDA #%00111110
 STA PPUMask
 CLI
+RTS
+
+;Screen data in world/world+1
+LoadCollisionData:
+    LDY #$00
+    LoadCollisionLoop:
+        LDA (world), Y
+        ; LDA #$01
+        STA CollisionMap, Y
+        INY
+        TYA
+        CMP #$F0
+        BEQ :+
+        JMP LoadCollisionLoop
+        :
 RTS
 
 ; X, Y and type in X, Y , A
@@ -3002,6 +3624,8 @@ SpawnImmediately:
     RTS 
 
 ; X, Y and type in X,Y,A 
+; temp = attributes
+; temp2 = collision
 SpawnEntity:
     PHA 
     TXA 
@@ -3030,11 +3654,13 @@ SpawnEntity:
         STA entities+Entity::type, X
         LDA temp 
         STA entities+Entity::attributes, X 
+        LDA temp2
+        STA entities+Entity::collisionlayer, X
         ; some entities will override temp in their init, but there are circumstances where you want e.g. the attributes of the entity that spawned this one
         LDA #$00
         STA entities+Entity::generalpurpose, X 
         STA entities+Entity::animationtimer, X 
-        STA entities+Entity::collisionlayer, X 
+        ; STA entities+Entity::collisionlayer, X 
         RTS 
 EndEurydiceSpawn:
     PLA 
@@ -3052,26 +3678,6 @@ IncFrameCount:
     STA framecount
 RTS 
 
-CheckForBankSwap:
-    LDA #%10000000
-    BIT drawflags
-    BEQ :+
-        RTS 
-    LDA currentbank
-    STA $A000
-    LSR
-    STA $A000
-    LSR
-    STA $A000
-    LSR
-    STA $A000
-    LSR
-    STA $A000
-    LDA #%10000000
-    EOR drawflags
-    STA drawflags
-RTS 
-
 AlternateBanks:
     LDA framecount
     BEQ :+
@@ -3083,18 +3689,7 @@ AlternateBanks:
     JSR SetBank
     RTS
 
-SetBank: ; sets A as the bank to be used
-; lower 5 bits. lowest ignored in 8kb mode
-    LDA currentbank
-    STA $A000
-    LSR
-    STA $A000
-    LSR
-    STA $A000
-    LSR
-    STA $A000
-    LSR
-    STA $A000
+SetBank:
 RTS 
 
 
@@ -3128,17 +3723,17 @@ ReadButtons:
 
     LDA #$01
     LSR 
-    ReadButtonLoopP3:
-        LDA $4016
-        ROR 
-        ROL buttonsp3
-        BCC ReadButtonLoopP3
+    ; ReadButtonLoopP3:
+    ;     LDA $4016
+    ;     ROR 
+    ;     ROL buttonsp3
+    ;     BCC ReadButtonLoopP3
 
-    LDA #$01
-    STA $4017
-    STA buttonsp2
-    LSR
-    STA $4017
+    ; LDA #$01
+    ; STA $4017
+    ; STA buttonsp2
+    ; LSR
+    ; STA $4017
 
     ReadButtonLoopP2:
         LDA $4017
@@ -3147,11 +3742,11 @@ ReadButtons:
         BCC ReadButtonLoopP2
     LDA #$01
     LSR 
-    ReadButtonLoopP4:
-        LDA $4017 
-        ROR 
-        ROL buttonsp4
-        BCC ReadButtonLoopP4
+    ; ReadButtonLoopP4:
+    ;     LDA $4017 
+    ;     ROR 
+    ;     ROL buttonsp4
+    ;     BCC ReadButtonLoopP4
 RTS
 
 
@@ -3313,7 +3908,6 @@ LDA #$00
 RTS 
 
 CheckRight:
-
     LDA buttons
     AND #%00000001
     BEQ CheckRightRelease
@@ -4789,6 +5383,82 @@ Setrng:
     JSR Prng
     STA rng
     RTS
+
+;;;
+;Tilebuffers
+;;;
+FillTileBuffer:
+    ; LDA #<TitleScreen
+    ; STA world
+    ; LDA #>TitleScreen
+    ; STA world+1
+
+    LDX #31
+    LDY #$00
+    LDA #DFlags::WriteVertTiles1
+    BIT DrawFlags
+    BNE :+
+    LDA #$00
+    STA tilebufferindex
+    RTS
+    :
+    LDY tilebufferindex
+    LDA (world), Y
+    ASL 
+    TAY 
+    LDA (metatilepointer), Y 
+    STA jumppointer
+    INY
+    LDA (metatilepointer), Y
+    STA jumppointer+1
+
+    ; fill first strip
+    LDY #$00
+
+    LDA (jumppointer), Y 
+    STA TileBuffer, X
+    INY
+    DEX 
+    LDA (jumppointer), Y
+    STA TileBuffer, X
+    INY 
+    INC tilebufferindex
+    DEX
+    BPL :-
+    LDA tilebufferindex
+    SEC 
+    SBC #$10
+    STA tilebufferindex
+    ; fill second strip
+    LDX #31
+    :
+    LDY tilebufferindex
+    LDA (world), Y
+    ASL 
+    TAY 
+    LDA (metatilepointer), Y 
+    STA jumppointer
+    INY
+    LDA (metatilepointer), Y
+    STA jumppointer+1
+
+    LDY #$02
+
+    LDA (jumppointer), Y 
+    STA TileBuffer2, X
+    INY
+    DEX 
+    LDA (jumppointer), Y
+    STA TileBuffer2, X
+    INY
+    INC tilebufferindex
+    DEX
+    BPL :-
+    RTS
+
+FillAttributeBuffer:
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; OAM Buffer Handling ; All sprite data for the frame must be written into the OAM so that it can be sent to the PPU in vblank
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -4811,21 +5481,33 @@ OAMBuffer:
             LDA #$00
     DrawSprites:
         LDA entities+Entity::type, X 
+        BNE :+
+        JMP CheckEndSpriteDraw
+        :
         ASL 
         TAY 
-        LDA DrawSpriteList, Y
+        LDA DrawSpriteList, Y 
         STA jumppointer
-        LDA DrawSpriteList+1, Y  
+        LDA DrawSpriteList+1, Y 
         STA jumppointer+1
-        JMP (jumppointer)
+
+        LDA entities+Entity::animationframe, X
+        ASL 
+        TAY 
+        LDA (jumppointer), Y 
+        PHA 
+        INY 
+        LDA (jumppointer), Y 
+        STA jumppointer+1
+        PLA 
+        STA jumppointer 
+
 
     DrawSpriteInit:
         LDY #$00
     DrawSpriteLoop:  
-        LDA jumppointer, Y
-
-        ; get y offset 
         LDA (jumppointer), Y
+        ; get y offset 
         CLC 
         ADC entities+Entity::ypos, X
         SEC 
@@ -4883,267 +5565,36 @@ OAMBuffer:
     EndSpriteDraw:
         RTS 
 
-; Draw list 
-SkipDraw:
-    JMP CheckEndSpriteDraw
-
-DrawPlayer1:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListPlayer, Y 
-    STA jumppointer
-    LDA MetaSpriteListPlayer+1, Y
-    STA jumppointer+1
-    LDY #$00
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawPlayer2:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListPlayer2, Y 
-    STA jumppointer
-    LDA MetaSpriteListPlayer2+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawPlayer3:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListPlayer3, Y 
-    STA jumppointer
-    LDA MetaSpriteListPlayer3+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawPlayer4:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListPlayer4, Y 
-    STA jumppointer
-    LDA MetaSpriteListPlayer4+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawSlider:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListSlider, Y 
-    STA jumppointer
-    LDA MetaSpriteListSlider+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawProjectileSpell:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListProjectileSpell, Y 
-    STA jumppointer
-    LDA MetaSpriteListProjectileSpell+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawExplosion:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListExplosion, Y 
-    STA jumppointer
-    LDA MetaSpriteListExplosion+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawLightningEmitter:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListLightningEmitter, Y 
-    STA jumppointer
-    LDA MetaSpriteListLightningEmitter+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawLightning:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListLightning, Y 
-    STA jumppointer
-    LDA MetaSpriteListLightning+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawSparks:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListSparks, Y 
-    STA jumppointer
-    LDA MetaSpriteListSparks+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-
-DrawFireball:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListFireball, Y 
-    STA jumppointer
-    LDA MetaSpriteListFireball+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawRespawner:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListRespawner, Y 
-    STA jumppointer
-    LDA MetaSpriteListRespawner+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawBroomStick:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListBroomStick, Y 
-    STA jumppointer
-    LDA MetaSpriteListBroomStick+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawPortal:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListPortal, Y 
-    STA jumppointer
-    LDA MetaSpriteListPortal+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-DrawIceBeam:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListIceBeam, Y 
-    STA jumppointer
-    LDA MetaSpriteListIceBeam+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
-; DrawIceCrystal:
-;     LDA entities+Entity::animationframe, X 
-;     ASL 
-;     TAY 
-;     LDA MetaSpriteListIceCrystal, Y 
-;     STA jumppointer
-;     LDA MetaSpriteListIceCrystal+1, Y
-;     STA jumppointer+1
-;     LDA (jumppointer), Y 
-;     CMP #$FF
-;     BNE :+
-;     JMP CheckEndSpriteDraw
-;     :
-;     JMP DrawSpriteInit
-
-DrawTeleporter:
-    LDA entities+Entity::animationframe, X 
-    ASL 
-    TAY 
-    LDA MetaSpriteListTeleporter, Y 
-    STA jumppointer
-    LDA MetaSpriteListTeleporter+1, Y
-    STA jumppointer+1
-    LDA (jumppointer), Y 
-    CMP #$FF
-    BNE :+
-    JMP CheckEndSpriteDraw
-    :
-    JMP DrawSpriteInit
-
+DrawSpriteList:
+    .word MetaSpriteListPlayer ; just a dummy to fill the entry. This will never be chosen
+    .word MetaSpriteListPlayer
+    .word MetaSpriteListPlayer2
+    .word MetaSpriteListPlayer3
+    .word MetaSpriteListPlayer4
+    .word MetaSpriteListSlider
+    .word MetaSpriteListProjectileSpell
+    .word MetaSpriteListExplosion
+    .word MetaSpriteListLightningEmitter
+    .word MetaSpriteListSparks
+    .word MetaSpriteListLightning
+    .word MetaSpriteListFireball
+    .word MetaSpriteListRespawner
+    .word MetaSpriteListPortal
+    .word MetaSpriteListBroomStick
+    .word MetaSpriteListIceBeam
+    .word MetaSpriteListTeleporter
+    .word MetaSpriteListTeleporter
+    .word MetaSpriteListTeleporter
+    .word MetaSpriteListTeleporter
+    .word MetaSpriteListHat
+    .word MetaSpriteListScoreTextPlayerOne
+    .word MetaSpriteListScoreNumber
+    .word MetaSpriteListScoreTextPlayerTwo
+    .word MetaSpriteListScoreNumber
+    .word MetaSpriteListScoreTextPlayerThree
+    .word MetaSpriteListScoreNumber
+    .word MetaSpriteListScoreTextPlayerFour
+    .word MetaSpriteListScoreNumber
 ;;;;;;;;
 ;; DEATH FUNCTIONS
 ;; These are all called from ProcessDestructionStack and MUST return there when they finish
@@ -5159,20 +5610,20 @@ RespawnPlayer:
     PLA 
     PLA
     JSR SpawnPlayerPort1
-    ; LDY #$50
-    ; LDX #$50 
-    ; LDA EntityType::Player
-    ; JSR SpawnEntity
     JMP ProcessDestructionStack
 RespawnPlayer2:
     PLA 
-    PLA 
+    TAX
     PLA
-    JSR SpawnPlayerPort2
-    ; LDY #$50
-    ; LDX #$50 
-    ; LDA EntityType::Player
-    ; JSR SpawnEntity
+    TAY 
+    PLA
+    LDA #EntityType::Explosion
+    JSR SpawnEntity
+
+    LDA #$00
+    STA playerstatep2
+    LDA #$02
+    JSR AddEntityToPlayerSpawnStack
     JMP ProcessDestructionStack
 RespawnPlayer3:
     PLA 
@@ -5542,11 +5993,199 @@ MetaTileList:
     .word floor_half ; 31
     .word floor_half_reversed
 
+MetaTileListTitle:
+    .word titleblank
+    .word title1
+    .word title2 
+    .word title3 
+    .word title4
+    .word title5
+    .word title6
+    .word title7
+    .word title8
+    .word title9
+    .word title10
+    .word title11
+    .word title12
+    .word title13
+    .word title14
+    .word title15
+    .word title16
+    .word title17
+    .word title18
+    .word title19
+    .word title20
+    .word title21
+    .word title22
+    .word title23
+    .word title24
+    .word title25
+    .word title26
+    .word title27
+    .word title28
+    .word title29
+    .word title30
+    .word title31
+    .word title32
+    .word title33
+    .word title34
+    .word title35
+    .word title36
+
+titleblank:
+    .byte $FF,$FF
+    .BYTE $FF,$FF
+title1:
+    .byte $40,$41
+    .byte $50,$51
+
+title2:
+    .byte $42,$43
+    .byte $52,$53
+
+title3:
+    .byte $44,$45
+    .byte $53,$54
+
+title4:
+    .byte $46,$47
+    .byte $56,$57
+
+title5:
+    .byte $48,$49
+    .byte $58,$59
+
+title6:
+    .byte $4a,$4b
+    .byte $5A,$5B
+
+title7:
+    .byte $4C,$4D
+    .byte $5C,$5D
+
+title8:
+    .byte $4E,$4F
+    .byte $5E,$5F
+
+title9:
+    .byte $60,$61
+    .byte $70,$71
+
+title10:
+    .byte $62,$63
+    .byte $72,$73
+
+title11:
+    .byte $64,$65
+    .byte $73,$74
+
+title12:
+    .byte $66,$67
+    .byte $76,$77
+
+title13:
+    .byte $68,$69
+    .byte $78,$79
+
+title14:
+    .byte $6a,$6b
+    .byte $7A,$7B
+
+title15:
+    .byte $6C,$6D
+    .byte $7C,$7D
+
+title16:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+
+title17:
+    .byte $80,$81
+    .byte $90,$91
+
+title18:
+    .byte $82,$83
+    .byte $92,$93
+
+title19:
+    .byte $A0,$A1
+    .byte $B0,$B1
+
+title20:
+    .byte $A2,$A3
+    .byte $B2,$B3
+
+title21:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title22:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title23:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title24:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title25:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title26:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title27:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title28:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title29:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title30:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title31:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title32:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title33:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title34:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title35:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+title36:
+    .byte $6E,$6F
+    .byte $7E,$7F
+
+
 PaletteData:
     .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$07,$16,$27, $0F,$05,$15,$30  ;background palette data  
     .byte $0F,$17,$27,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
 
-ScreenDefault: ; the  format of a screen is that each byte represents 1 meta tile, made up of 4 8x8 pixel blocks to save huge
+ScreenDefault2: ; the  format of a screen is that each byte represents 1 meta tile, made up of 4 8x8 pixel blocks to save huge
 ; amounts ofbytes in the long run
     .byte $02,$1B,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03,$02,$00,$00,$03
     .byte $02,$00,$1C,$03,$02,$00,$00,$03,$02,$00,$12,$03,$11,$0C,$00,$03
@@ -5564,7 +6203,7 @@ ScreenDefault: ; the  format of a screen is that each byte represents 1 meta til
     .byte $07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$07,$18,$17,$18,$07
     .byte $06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06,$06
 
-ScreenDefault2:
+ScreenDefault:
     .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
     .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$00,$00,$00,$00,$00,$23
     .byte $24,$11,$31,$31,$00,$00,$11,$0E,$0F,$15,$00,$00,$31,$31,$00,$23
@@ -5581,6 +6220,23 @@ ScreenDefault2:
     .byte $29,$2F,$04,$04,$05,$2F,$05,$05,$04,$04,$2F,$2F,$05,$04,$2F,$29
     .byte $07,$1D,$1E,$1E,$1D,$1D,$1E,$1E,$1E,$1E,$1D,$1D,$1E,$1E,$1D,$07
 
+TitleScreen:
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$01,$02,$03,$04,$05,$06,$07,$08,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$09,$0a,$0b,$0c,$0d,$0e,$0f,$10,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$11,$12,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$13,$13,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$14,$15,$16,$17,$18,$19,$1a,$1b,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$1c,$1d,$1e,$1f,$20,$21,$22,$23,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+
 AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
     .byte %00100010, %00000000, %00000000, %11000000, %00110000, %00000000, %00000000, %10001000
     .byte %00100010, %01011010, %01011010, %00001100, %00000011, %01011010, %01001000, %10011010
@@ -5595,9 +6251,13 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
 ;;; LOOK UP TABLES
 ;;;;;;;;;;;
 
+Sin:
+    .byte $01,$00,$01,$00,$01,$00,$00,$01,$00,$00,$01,$00,$00,$00,$00
+    .byte $FF,$00,$FF,$00,$FF,$00,$00,$FF,$00,$00,$FF,$00,$00,$00,$00
+
 GameStatePath:
-    .word DoGameLogic
-    .word DoGameLogic
+    .word DoTitleLogic
+    .word DoMapSelectLogic
     .word DoGameLogic
 
 PlayerSpawnTable:
@@ -5638,50 +6298,6 @@ DestroyEntityList: ; defines behaviours for when an entity is destroyed
     .word NoDeathAction
 
 
-ProcessEntityList: ; Jump table for processing entities
-    .word SkipEntity
-    .word ProcessPlayer
-    .word ProcessPlayer2
-    .word ProcessPlayer3
-    .word ProcessPlayer4
-    .word ProcessSlider
-    .word ProcessProjectileSpell
-    .word ProcessExplosion
-    .word ProcessLightningEmitter
-    .word ProcessSparks 
-    .word ProcessLightning 
-    .word ProcessFireball
-    .word ProcessRespawner
-    .word ProcessPortal
-    .word ProcessBroomStick
-    .word ProcessIceBeam
-    .word ProcessTeleporter
-    .word ProcessTeleporterP2
-    .word ProcessTeleporterP3
-    .word ProcessTeleporterP4
-
-DrawSpriteList: ; this is a list of sprite definitions
-    .word SkipDraw
-    .word DrawPlayer1
-    .word DrawPlayer2
-    .word DrawPlayer3
-    .word DrawPlayer4
-    .word DrawSlider
-    .word DrawProjectileSpell
-    .word DrawExplosion
-    .word DrawLightningEmitter 
-    .word DrawSparks
-    .word DrawLightning
-    .word DrawFireball
-    .word DrawRespawner
-    .word DrawPortal 
-    .word DrawBroomStick
-    .word DrawIceBeam
-    .word DrawTeleporter
-    .word DrawTeleporter
-    .word DrawTeleporter
-    .word DrawTeleporter
-
 
 MetaSpriteListPlayer:
     .word PlayerSpriteIdle1 ; 0
@@ -5693,6 +6309,17 @@ MetaSpriteListPlayer:
     .word PlayerSpriteSlide ; 6
     .word PlayerSpriteFire ; 
 
+MetaSpriteListPlayerWithHat:
+    .word PlayerSpriteIdleHat1 ; 0
+    .word PlayerSpriteIdleHat2 ; 1
+    .word PlayerSpriteRunHat1 ; 2
+    .word PlayerSpriteRunHat2 ; 3
+    .word PlayerSpriteCrouchHat ; 4
+    .word PlayerSpriteJumpHat ; 5
+    .word PlayerSpriteSlideHat ; 6
+    .word PlayerSpriteFireHat ; 
+
+
 AnimationStringsPlayer:
     .word AnimationStringPlayerIdle
     .word AnimationStringPlayerRunning
@@ -5700,6 +6327,7 @@ AnimationStringsPlayer:
     .word AnimationStringPlayerJumping
     .word AnimationStringPlayerFalling
     .word AnimationStringPlayerFallingEnd
+    .word AnimationStringPlayerRunning
     .word AnimationStringPlayerFiring
 
 MetaSpriteListPlayer2:
@@ -5798,6 +6426,37 @@ MetaSpriteListTeleporter:
     .word TeleporterSprite8
     .word TeleporterSprite9
 
+MetaSpriteListHat:
+    .word HatSprite
+
+MetaSpriteListScoreTextPlayerOne:
+    .word ScoreTextPlayer1Sprite
+
+MetaSpriteListScoreTextPlayerTwo:
+    .word ScoreTextPlayer2Sprite
+
+MetaSpriteListScoreTextPlayerThree:
+    .word ScoreTextPlayer3Sprite
+
+MetaSpriteListScoreTextPlayerFour:
+    .word ScoreTextPlayer4Sprite
+
+
+MetaSpriteListScoreNumber:
+    .word ScoreNumber0Sprite
+    .word ScoreNumber1Sprite
+    .word ScoreNumber2Sprite
+    .word ScoreNumber3Sprite
+    .word ScoreNumber4Sprite
+    .word ScoreNumber5Sprite
+    .word ScoreNumber6Sprite
+    .word ScoreNumber7Sprite
+    .word ScoreNumber8Sprite
+    .word ScoreNumber9Sprite
+
+
+
+
 PlayerSpriteIdle1:
     .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte 
@@ -5824,6 +6483,35 @@ PlayerSpriteFire:
     .byte $00,$07,$00,$00
     .byte $FF
 
+PlayerSpriteIdleHat1:
+    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FA,$16,$00,$00
+    .byte $FF ; termination byte 
+PlayerSpriteIdleHat2:
+    .byte $00,$01,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FA,$16,$00,$00
+    .byte $FF ; termination byte
+PlayerSpriteRunHat1:
+    .byte $00,$02,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSpriteRunHat2:
+    .byte $00,$03,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSpriteCrouchHat:
+    .byte $00,$04,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSpriteJumpHat:
+    .byte $00,$06,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+PlayerSpriteSlideHat:
+    .byte $00,$08,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$09,$00,$07
+    .byte $FF ; termination byte
+PlayerSpriteFireHat:
+    .byte $00,$07,$00,$00
+    .byte $FF
+
+
 AnimationStringPlayerIdle:
     .byte $00,$1A,$01,$1A,$FF ; Animation frame -> Timer FF=repeat
 AnimationStringPlayerRunning:
@@ -5839,7 +6527,7 @@ AnimationStringPlayerJumping:
 AnimationStringPlayerFalling:
     .byte $00,$80,$FF
 AnimationStringPlayerFallingEnd:
-    .byte $04,$09,$FE,$00
+    .byte $04,$09,$FE
 AnimationStringPlayerFiring:
     .byte $01 ; animation length
     .byte $07
@@ -6076,6 +6764,62 @@ TeleporterSprite9:
     .byte $00,$BC,$00,$00
     .byte $FF
 
+HatSprite:
+    .byte $00,$16,$00,$00
+    .byte $FF
+
+ScoreTextPlayer1Sprite:
+    .byte $00,$DF,$00,$00
+    .byte $00,$EF,$00,$08
+    .BYTE $FF
+
+ScoreTextPlayer2Sprite:
+    .byte $00,$EF,$00,$00
+    .byte $00,$FF,$00,$08
+    .BYTE $FF
+
+ScoreTextPlayer3Sprite:
+    .byte $00,$FF,$00,$00
+    .byte $00,$DF,$00,$08
+    .BYTE $FF
+
+ScoreTextPlayer4Sprite:
+    .byte $00,$EF,$00,$00
+    .byte $00,$DF,$00,$08
+    .BYTE $FF
+
+ScoreNumber0Sprite:
+    .byte $00, $00,$00,$00
+    .byte $FF
+ScoreNumber1Sprite:
+    .byte $00, $01,$00,$00
+    .byte $FF
+
+ScoreNumber2Sprite:
+    .byte $00, $02,$00,$00
+    .byte $FF
+ScoreNumber3Sprite:
+    .byte $00, $03,$00,$00
+    .byte $FF
+ScoreNumber4Sprite:
+    .byte $00, $04,$00,$00
+    .byte $FF
+ScoreNumber5Sprite:
+    .byte $00, $05,$00,$00
+    .byte $FF
+ScoreNumber6Sprite:
+    .byte $00, $06,$00,$00
+    .byte $FF
+ScoreNumber7Sprite:
+    .byte $00, $07,$00,$00
+    .byte $FF
+ScoreNumber8Sprite:
+    .byte $00, $08,$00,$00
+    .byte $FF
+ScoreNumber9Sprite:
+    .byte $00, $09,$00,$00
+    .byte $FF
+
 ;; Animation Strings 
 AnimationPortalExpand:
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
@@ -6120,8 +6864,9 @@ SpawnerSpeedRamp:
 .segment "VECTORS"      ; This part just defines what labels to go to whenever the nmi or reset is called 
     .word NMI           ; If you look at someone elses stuff they probably call this vblank or something
     .word Reset
+    .word IRQ
      
 .segment "CHARS" ; sprite/tile data goes here
+    .incbin "title_screen_bank.chr"
     .incbin "castle_set-bank1.chr"
     ; .incbin "castle_set-bank2.chr"
-    .incbin "title_screen_bank.chr"

@@ -1,12 +1,7 @@
 ; This is a template for a basic NES rom
 ; it uses ines 1.0, not 2.0
 
-; Constants
-PROJECTILECOOLDOWN = 30
-PROJECTILEMAX = 2
-FRICTION = 10
-PLAYERACCELLERATION = 5
-PLAYERFALLSPEED = 20
+.include "constants.asm" 
 
 ; INes 1.0
 .segment "HEADER" 
@@ -69,7 +64,7 @@ PLAYERFALLSPEED = 20
     Scorenumberseconddigitp3 = 31
     Scorenumberseconddigitp4 = 32
     VerticalLaser = 33
-
+    Crystal = 34
 .endscope
 
 .scope GState
@@ -131,6 +126,8 @@ PLAYERFALLSPEED = 20
 
     vxhigh: .res 1
     vxlow: .res 1
+    vxhighleft : .res 1 
+    vxlowleft: .res 1
     CurrentColumnHigh: .res 1
     CurrentColumnLow: .res 1
     world: .res 2 ; this is a pointer to the address of the current screen we want to fetch tiles on
@@ -1014,28 +1011,29 @@ BNE :-
 
 
 
-LDX #$C0
+LDX #$80
+LDY #$90
+LDA #EntityType::Player 
+JSR SpawnEntity
+LDX #$50
 LDY #$10
 LDA #EntityType::Hat
 jsr SpawnEntity
-LDX #$D8
-LDY #$c8
-LDA #EntityType::Player 
+
+LDX #$a0
+LDY #$10
+LDA #EntityType::Crystal
 JSR SpawnEntity
-; LDX #$C0
-; LDY #$10
-; LDA #EntityType::Player2
-; JSR SpawnEntity
 
 LDX #$10
 LDY #$40
 LDA #EntityType::VerticalLaser
 JSR SpawnEntity
 
-LDX #$80
-LDY #$a0
-LDA #EntityType::LightningEmitter
-jsr SpawnEntity
+; LDX #$80
+; LDY #$a0
+; LDA #EntityType::LightningEmitter
+; jsr SpawnEntity
 
 
 LDX #$10
@@ -1888,8 +1886,8 @@ StateMachineList:
     .word ScoreNumberDigit2StateMachineP2
     .word ScoreNumberDigit2StateMachine
     .word ScoreNumberDigit2StateMachineP2
-
     .word VerticalLaserStateMachine
+    .word CrystalStateMachine
 
 PlayerStateMachine:
     .word PlayerInit;0
@@ -2064,6 +2062,10 @@ ScoreNumberDigit2StateMachineP4:
 VerticalLaserStateMachine:
     .word VerticalLaserInit
     .word VerticalLaserNormal
+
+CrystalStateMachine:
+    .word CrystalInit
+    .word CrystalIdle
 ; Entity Behaviours
 
 PlayerInit:
@@ -2117,6 +2119,8 @@ PlayerOnFloor:
     BEQ :+
         JSR PlayerSubSpeed
     :
+    JSR PlayerApplyFriction
+    ; :
     ; apply velocity then collide
     JSR PlayerApplyVelocityX
     JSR EjectFromRightWall
@@ -2129,7 +2133,6 @@ PlayerOnFloor:
         LDA #$06 ; set state to falling
         STA entities+Entity::generalpurpose, X
     :
-    ; LDA #$03
     ASL 
     TAY 
     LDA CollisionEffectTable, Y 
@@ -2142,9 +2145,14 @@ PlayerOnFloor:
     ; Check for jump
     INC entities+Entity::ypos, X
     JSR CheckA
-    BEQ :+
-        JSR CollideDown
-        BEQ :+
+    Bne :+
+    ;     JSR CollideDown2
+    ;     BEQ :+
+    ;     DEC entities+Entity::ypos, X
+    ;     JSR CollideUp2
+    ;     BNE :+
+    ;     INC entities+Entity::ypos, X
+
         LDA #$00
         STA playerjumptrack
         LDA #$03 ; set state to jumping
@@ -2155,6 +2163,7 @@ PlayerOnFloor:
 PlayerMoving:
     JMP EntityComplete 
 PlayerJumping:
+    ; dec entities+Entity::ypos, X
     ; left/right movement
     JSR CheckRight
     BEQ :+
@@ -2173,7 +2182,7 @@ PlayerJumping:
     CLC 
     ADC entities+Entity::ypos, X
     STA entities+Entity::ypos, X
-    JMP :+++
+    JMP NoJumpTrackEnd
     :
     ; Check if we're inside a jumpable platform
     JSR CollideDown2
@@ -2181,23 +2190,26 @@ PlayerJumping:
     BEQ :+
     LDA #$06
     STA entities+Entity::generalpurpose, X
-    JMP :++
+    JMP NoJumpTrackEnd
     :
     LDA #$07
     STA entities+Entity::generalpurpose, X
-
-    :
+    NoJumpTrackEnd:
     ;check for headbonk
     JSR CollideUp2
+    ; CMP #$04
+    ; BEQ :+
+    ; CMP #$00
     BEQ :+
-        LDA #$05
-    STA entities+Entity::generalpurpose, X
+        ; LDA #$05
+        ; STA entities+Entity::generalpurpose, X
+        JSR EjectFromTopWall
     :
+    
     ; apply movement
     JSR PlayerApplyVelocityX
     JSR EjectFromLeftWall
     JSR EjectFromRightWall
-    JSR EjectFromTopWall
 
     JMP EntityComplete
 PlayerJumpReleased:
@@ -2226,21 +2238,25 @@ PlayerHeadbonk:
     LDA #$06
     STA entities+Entity::generalpurpose, X
     :
+    JSR EjectFromTopWall
     JSR PlayerApplyVelocityX
     JSR EjectFromRightWall
     JSR EjectFromLeftWall
-    JSR EjectFromTopWall
     JMP EntityComplete
 PlayerFalling:
     ; left/right movement
     JSR CheckRight
-    BEQ :+
+    Beq :+
         JSR PlayerAddSpeed
     :
     JSR CheckLeft
     BEQ :+
         JSR PlayerSubSpeed
     :
+    JSR PlayerApplyVelocityX
+    JSR EjectFromRightWall
+    JSR EjectFromLeftWall
+
     LDA vylow
     ADC #PLAYERFALLSPEED
     STA vylow
@@ -2249,7 +2265,7 @@ PlayerFalling:
     STA vyhigh
     JSR PlayerApplyVelocityY
     ; check if we're on floor
-    ; INC entities+Entity::ypos, X 
+    ; INC entities+Entity::ypos, X
     JSR CollideDown2
     BEQ :+
         LDA #$01 
@@ -2257,14 +2273,19 @@ PlayerFalling:
         LDA #$00
         STA vylow
         STA vyhigh
-        JSR EjectFromBottomWall
-        ; dec entities+Entity::ypos, X 
-        jmp EntityComplete
+    ; DEC entities+Entity::ypos, X
+        JSR EjectFromBottomWallAndPlatforms
     :
-    JSR PlayerApplyVelocityX
-    JSR EjectFromRightWall
-    JSR EjectFromLeftWall
+    JSR CollideRight2
+    CMP #$04
+    BNE :+
+        LDA #$07 
+        STA entities+Entity::generalpurpose, X
+        JMP EndCheckForFloor
+    :
 
+    EndCheckForFloor:
+    
     JMP EntityComplete
 PlayerFallingThroughPlatform:
     ; left/right movement
@@ -2287,10 +2308,12 @@ PlayerFallingThroughPlatform:
     JSR CollideDown2
     CMP #$04
     BEQ :+
+        JSR CollideUp2
+        CMP #$04
+        BEQ :+
         LDA #$06
         sta entities+Entity::generalpurpose, X
     :
-    JSR PlayerApplyVelocityX
     JSR EjectFromRightWall
     JSR EjectFromLeftWall
     jmp EntityComplete
@@ -2299,57 +2322,32 @@ PlayerDisabled:
 
 
 PlayerApplyFriction:
-    LDA vxhigh
-    BEQ PlayerApplyFrictionLessThanZero
-    LDA vxhigh
-    BMI ApplyFrictionPositive
-
-    ApplyFrictionNegative:
     LDA vxlow
     SEC 
     SBC #FRICTION
     STA vxlow
-    BCC :+ ; if minus, add the carry and reset vx to 128 
     LDA vxhigh
-    SBC #$00 
+    SBC #$00
     STA vxhigh
-    LDA #127 
-    STA vxlow
-    :
-RTS 
-
-    ApplyFrictionPositive: ;
-    LDA vxlow
-    CLC 
-    ADC #FRICTION
-    STA vxlow
-    BCC :+ ; if we go over 0, add the carry and reset vx to -128
-    LDA vxhigh
-    ADC #$00
-    STA vxhigh
-    LDA #128
-    STA vxlow
-    :
-RTS
-
-PlayerApplyFrictionLessThanZero:
-    LDA vxlow
     BPL :+
-    ; if number is negative, increase it
-    CLC 
-    ADC #$10
-    STA vxlow
-    RTS 
-    :
-    ; If postive, reduce number
-    SEC
-    SBC #$10
-    STA vxlow
-    BCS :+ 
-    LDA #$00 
+    LDA #$00
+    STA vxhigh
     STA vxlow
     :
-RTS 
+
+    LDA vxlowleft
+    SEC 
+    SBC #FRICTION
+    STA vxlowleft
+    LDA vxhighleft
+    SBC #$00
+    STA vxhighleft
+    BPL :+
+    LDA #$00
+    STA vxhighleft
+    STA vxlowleft
+    :
+
 
 PlayerApplyVelocityX:
     LDA vxlow
@@ -2359,6 +2357,14 @@ PlayerApplyVelocityX:
     LDA entities+Entity::xpos, X 
     ADC vxhigh
     STA entities+Entity::xpos, X
+    LDA entities+Entity::xpossub, X 
+    SEC 
+    SBC vxlowleft
+    STA entities+Entity::xpossub, X 
+    LDA entities+Entity::xpos, X 
+    SBC vxhighleft
+    STA entities+Entity::xpos, X
+
 RTS
 
 PlayerApplyVelocityY:
@@ -2598,11 +2604,10 @@ AddSpeedP1:
     CLC 
     ADC vxlow
     STA vxlow
-    BPL :+
-    INC vxhigh
-    LDA #00
-    STA vxlow
-    :
+    LDA vxhigh
+    ADC #$00
+    STA vxhigh
+    ; :
     ; cap speed
     LDA vxhigh
     CMP #$01
@@ -2625,13 +2630,12 @@ SubSpeedP1:
     ; add to low vel and carry to high
     LDA #PLAYERACCELLERATION
     SEC 
-    SBC vxlow
-    STA vxlow
-    BPL :+
-    DEC vxhigh
-    LDA #00
-    STA vxlow
-    :
+    SBC vxlowleft
+    STA vxlowleft
+    LDA vxhighleft
+    SBC #$00
+    STA vxhighleft
+    ; :
     ; cap speed
     LDA vxhigh
     CMP #$FF
@@ -3988,6 +3992,26 @@ VerticalLaserNormal:
     :
 JMP EntityComplete
 
+CrystalInit:
+    LDA #$01
+    STA entities+Entity::generalpurpose, X
+    JSR Prng 
+    AND #%00000011
+    lda #%00000001
+    STA entities+Entity::attributes, X
+    STA entities+Entity::animationtimer, X
+
+CrystalIdle:
+    DEC entities+Entity::animationtimer, X 
+    BNE :+
+    LDA #$20
+    sta entities+Entity::animationtimer, X
+    LDA #%00000001
+    EOR entities+Entity::animationframe, X
+    STA entities+Entity::animationframe, X
+    :
+    JMP EntityComplete
+
 ClearEntity:
     ; wasteful but safer to clear all and not just type
     LDA #$00 
@@ -5128,6 +5152,17 @@ EjectFromRightWall:
     :
 RTS
 
+EjectFromRightWallAndPlatforms:
+    JSR CollideRight2 ; check initial position
+    BEQ :++
+    :
+    DEC entities+Entity::xpos, X 
+    JSR CollideRight2
+    BNE :-
+    :
+RTS
+
+
 EjectFromLeftWall:
     JSR CollideLeft2 ; check initial position
     BEQ :++
@@ -5139,6 +5174,17 @@ EjectFromLeftWall:
     BNE :-
     :
 RTS
+
+EjectFromLeftWallAndPlatforms:
+    JSR CollideLeft2 ; check initial position
+    BEQ :++
+    :
+    INC entities+Entity::xpos, X 
+    JSR CollideLeft2
+    BNE :-
+    :
+RTS
+
 
 EjectFromBottomWall:
     JSR CollideDown2 ; check initial position
@@ -5152,6 +5198,18 @@ EjectFromBottomWall:
     :
 RTS
 
+EjectFromBottomWallAndPlatforms:
+    JSR CollideDown2 ; check initial position
+    BEQ :++
+    :
+    DEC entities+Entity::ypos, X 
+    JSR CollideDown2
+    BNE :-
+    :
+RTS
+
+
+
 EjectFromTopWall:
     JSR CollideUp2 ; check initial position
     BEQ :++
@@ -5164,6 +5222,15 @@ EjectFromTopWall:
     :
 RTS
 
+EjectFromTopWallAndPlatforms:
+    JSR CollideUp2 ; check initial position
+    BEQ :++
+    :
+    INC entities+Entity::ypos, X 
+    JSR CollideUp2
+    BNE :-
+    :
+RTS
 
 
 CollideLeft2:
@@ -5358,9 +5425,6 @@ CollideLeft:
 
 CollideRight2:
 
-    LDA #$00
-    STA temp3
-
     CollideRight2Loop:
 
     LDA entities+Entity::xpos, X ;4  
@@ -5549,12 +5613,6 @@ CollideRight: ; only to be called dfrom process entities
 
 CollideDown2:
 
-    ; LDA #$3f
-    ; STA $2001
-    
-    LDA #$00
-    STA temp3
-
     CollideDown2Loop:
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
     LDA entities+Entity::xpos, X 
@@ -5608,14 +5666,14 @@ CollideDown2:
     SEC 
     SBC temp ; get difference between two 
     CMP #$09
-    BCC :+
+    BCS :+
     INY
     :
-    LDA temp2
+    LDA entities+Entity::ypos, X 
     SEC 
-    SBC entities+Entity::ypos, X 
+    SBC temp2
     CMP #$09 
-    BCC :+
+    BCS :+
     INY 
     INY
     :
@@ -5677,14 +5735,14 @@ CollideDown2:
     SEC 
     SBC temp ; get difference between two 
     CMP #$09
-    BCC :+
+    BCS :+
     INY
     :
-    LDA temp2
+    LDA entities+Entity::ypos, X
     SEC 
-    SBC entities+Entity::ypos, X
+    SBC temp2
     CMP #$09
-    BCC :+
+    BCS :+
     INY
     INY
     :
@@ -5912,8 +5970,6 @@ CollideDown:
     RTS
 
 CollideUp2:
-    LDA #$00
-    STA temp3
     CollideUp2Loop:
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
     LDA entities+Entity::xpos, X  
@@ -5921,7 +5977,6 @@ CollideUp2:
     LSR 
     LSR 
     LSR ; divide by 16
-    ; AND #%00011111 ; mask bits over 16
     STA temp
 
     ; Do the same for Y pos 
@@ -5968,9 +6023,9 @@ CollideUp2:
     BCC :+
     INY
     :
-    LDA temp2  
+    LDA entities+Entity::ypos, X  
     SEC 
-    SBC entities+Entity::ypos, X 
+    SBC temp2 
     CMP #$09 
     BCC :+
     INY
@@ -6031,12 +6086,12 @@ CollideUp2:
     SEC 
     SBC temp ; get difference between two 
     CMP #$09
-    BCS :+
+    BCC :+
     INY
     :
-    LDA temp2 
+    LDA entities+Entity::ypos, X 
     SEC 
-    SBC entities+Entity::ypos, X 
+    SBC temp2 
     CMP #$09 
     BCC :+
     INY 
@@ -6045,16 +6100,15 @@ CollideUp2:
     LDA (jumppointer), Y
     ORA rectangle1
     
-    BEQ :+
+    ; BEQ :+
 
-        CMP #$04
-        BEQ :+
+    ;     CMP #$04
+    ;     BEQ :+
 
-        STA temp3 
-        INC entities+Entity::ypos, X 
-        JMP CollideUp2Loop
-    :
-    LDA temp3
+    ;     STA temp3 
+    ;     INC entities+Entity::ypos, X 
+    ;     JMP CollideUp2Loop
+    ; :
     RTS 
 
 CollideUp3:
@@ -6685,6 +6739,7 @@ DrawSpriteList:
     .word MetaSpriteListScoreNumber
     .word MetaSpriteListScoreNumber
     .word MetaSpriteListVerticalLaser
+    .word MetaSpriteListCrystal
 ;;;;;;;;
 ;; DEATH FUNCTIONS
 ;; These are all called from ProcessDestructionStack and MUST return there when they finish
@@ -7063,7 +7118,7 @@ floor_half:
 floor_half_reversed:
     .byte $68,$69
     .byte $A2,$A3
-    .byte $04,$04
+    .byte $01,$01
     .byte $00,$00
 laseremittertop:
     .byte $ea,$ea
@@ -7329,7 +7384,7 @@ ScreenDefault:
     .byte $24,$33,$23,$24,$02,$00,$00,$04,$05,$00,$40,$02,$00,$3F,$00,$23
     .byte $29,$12,$25,$26,$32,$00,$03,$04,$05,$02,$00,$32,$00,$1D,$30,$23
     .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$41,$3f,$02,$00,$10,$05,$23
-    .byte $24,$00,$0A,$0B,$02,$31,$03,$19,$1A,$42,$3f,$19,$1A,$00,$00,$23
+    .byte $24,$00,$0A,$0B,$02,$32,$03,$19,$1A,$42,$3f,$19,$1A,$00,$00,$23
     .byte $00,$00,$32,$32,$00,$00,$41,$00,$00,$43,$3f,$00,$00,$00,$00,$00
     .byte $07,$07,$39,$39,$39,$39,$2B,$3F,$3F,$2B,$3A,$3A,$3A,$3A,$07,$07
     .byte $06,$06,$06,$06,$06,$06,$00,$00,$00,$00,$06,$06,$06,$06,$06,$06
@@ -7594,6 +7649,11 @@ MetaSpriteListVerticalLaser:
     .word VerticalLaserSprite1
     .word VerticalLaserSprite2
     .word VerticalLaserSprite3
+
+MetaSpriteListCrystal:
+    .word CrystalSprite1
+    .word CrystalSprite2
+    .word CrystalSprite3
 
 
 PlayerSpriteIdle1:
@@ -8029,6 +8089,18 @@ VerticalLaserSprite3:
     .byte $30,$97,$00,$08
     .byte $38,$a6,$00,$00
     .byte $38,$a7,$00,$08
+    .byte $ff
+
+CrystalSprite1:
+    .byte $00,$CB,$00,$00
+    .byte $ff
+
+CrystalSprite2:
+    .byte $00,$CC,$00,$00
+    .byte $ff
+
+CrystalSprite3:
+    .byte $00,$CD,$00,$00
     .byte $ff
 
 

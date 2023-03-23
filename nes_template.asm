@@ -1017,7 +1017,7 @@ LDA #EntityType::Player
 JSR SpawnEntity
 LDX #$50
 LDY #$10
-LDA #EntityType::Hat
+LDA #EntityType::ProjectileSpell
 jsr SpawnEntity
 
 LDX #$a0
@@ -1926,6 +1926,7 @@ Player4StateMachine:
     .word Player4Disabled
 
 ProjectileSpellStateMachine:
+    .word ProjectileSpellInit
     .word ProjectileSpellMovingLeft 
     .word ProjectileSpellMovingRight
     .word ProjectileSpellDissipating
@@ -2110,6 +2111,7 @@ Player4Init:
     JMP EntityComplete
 
 PlayerOnFloor:
+    JSR PlayerAttack
     ; left/right movement
     JSR CheckRight
     BEQ :+
@@ -2145,7 +2147,7 @@ PlayerOnFloor:
     ; Check for jump
     INC entities+Entity::ypos, X
     JSR CheckA
-    Bne :+
+    Beq :+
     ;     JSR CollideDown2
     ;     BEQ :+
     ;     DEC entities+Entity::ypos, X
@@ -2908,7 +2910,7 @@ CheckP4ProjectileCount:
     JMP Endplayerprojectilecheck 
 
 PlayerWeapons:
-    .byte $0B
+    .byte $06
     .byte $0B
     .byte $0B
     .byte $0B
@@ -2952,75 +2954,66 @@ PlayerAttemptSpawnFireball:
     INC projectilecountp1
     PlayerEndSpawnFireball:
     RTS 
-    
+
+ProjectileSpellInit:
+    LDA #$08 
+    STA entities+Entity::animationtimer, X
+    LDA entities+Entity::collisionlayer,X
+    EOR #$FF 
+    AND #%00001111
+    STA entities+Entity::collisionlayer, X
+    LDA entities+Entity::attributes, X
+    STA temp 
+    LDA #%01000000 
+    BIT temp
+    BEQ :+
+    ; if 0, it is facing left and needs to go left
+    LDA #$01
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+    :
+    LDA #$02 
+    STA entities+Entity::generalpurpose, X 
+    JMP EntityComplete
+
 ProjectileSpellMovingLeft:
     JSR CollideLeft2
     BEQ :+
-    ; LDA #$02
-    ; STA entities+Entity::generalpurpose, X
-    ; LDA #$03
-    ; STA entities+Entity::animationframe, X
-    ; LDA #$10
-    ; STA entities+Entity::animationtimer, X
-    ; JMP EntityComplete
-    ; :
-    ; DEC entities+Entity::animationtimer, X
-    ; LDA entities+Entity::animationtimer, X
-    ; BNE :+
-    ; LDA #$0A
-    ; STA entities+Entity::animationtimer, X
-    ; INC entities+Entity::animationframe, X
-    ; LDA entities+Entity::animationframe, X
-    ; CMP #$03
-    ; BNE :+
-    ; LDA #$00 
-    ; STA entities+Entity::animationframe, X
-    ; :
-    LDA entities+Entity::xpos, X 
+        TXA 
+        JSR AddEntityToDestructionStack
+    :
+    DEC entities+Entity::xpos, X
+    LDA #$01
+    BIT framecount
+    BNE :++
+    LDA entities+Entity::animationframe, X
     SEC 
     SBC #$01
-    STA entities+Entity::xpos, X
+    BPL :+
+    LDA #$09
+    :
+    STA entities+Entity::animationframe, X
+    :
     JMP EntityComplete
 ProjectileSpellMovingRight:
-    JSR SpriteCollide
- 
+    JSR CollideRight2
     BEQ :+
-    ; If !0, we hit another sprite
-    ; JSR AddEntityToDestructionStack
-    ; TXA 
-    ; JSR AddEntityToDestructionStack
-
-    ; JSR CollideRight2
-    ; BEQ :+
-    ; LDA #$02
-    ; STA entities+Entity::generalpurpose, X 
-    ; JMP EntityComplete
-    ; :
-    ; DEC entities+Entity::animationtimer
-    ; LDA entities+Entity::animationtimer
-    ; BNE :+
-    ; LDA #$10
-    ; STA entities+Entity::animationtimer
-    ; INC entities+Entity::animationframe
-    ; LDA entities+Entity::animationframe
-    ; CMP #$03
-    ; BNE :+
-    ; LDA #$00 
-    ; STA entities+Entity::animationframe
+        TXA 
+        JSR AddEntityToDestructionStack
     :
-    LDA entities+Entity::xpos, X 
-    CLC  
-    ADC #$01
-    STA entities+Entity::xpos, X
-    LDA entities+Entity::xpos, X
-    CMP #$FE 
-    BCC :+
-    LDA entities+Entity::ypos, X
+    INC entities+Entity::xpos, X
+    LDA #$01
+    BIT framecount
+    BNE :++
+    LDA entities+Entity::animationframe, X
     CLC 
-    ADC #$04
-    STA entities+Entity::ypos, X
+    ADC #$01
+    CMP #$0a
+    BNE :+
+    LDA #$00
     :
-    
+    STA entities+Entity::animationframe, X
+    :
     JMP EntityComplete
 ProjectileSpellDissipating:
     INC entities+Entity::animationframe, X
@@ -4004,7 +3997,7 @@ CrystalInit:
 CrystalIdle:
     DEC entities+Entity::animationtimer, X 
     BNE :+
-    LDA #$20
+    LDA #$10
     sta entities+Entity::animationtimer, X
     LDA #%00000001
     EOR entities+Entity::animationframe, X
@@ -7188,12 +7181,12 @@ conveyorbeltrl5:
 
 jumpablefloor:
     .byte $b2,$b3
-    .BYTE $EC,$EC
+    .BYTE $fc,$fc
     .byte $04,$04
     .byte $00,$00
 
 jumpablefloorreversed:
-    .byte $EC,$EC
+    .byte $fc,$fc
     .BYTE $B2,$B3
     .byte $00,$00
     .byte $04,$04
@@ -7368,9 +7361,19 @@ PalletteDataBlack:
     .byte $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0F
     .byte $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0F
 
+PaletteDataGray:
+    .byte $0f,$00,$10,$37,  $0F,$01,$03,$0A,  $0F,$07,$16,$27, $0F,$05,$15,$30  ;background palette data  
+    .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
+
+PaletteDataCandyLand:
+    .byte $04,$15,$26,$37,  $04,$09,$1a,$2b,  $04,$06,$17,$27, $04,$05,$15,$30  ;background palette data  
+    .byte $04,$06,$16,$30,  $04,$1A,$2A,$30,  $04,$13,$23,$30, $04,$2d,$3D,$30  ;sprite palette data
+
+
 PaletteData:
-    .byte $0F,$01,$11,$21,  $0F,$01,$03,$0A,  $0F,$07,$16,$27, $0F,$05,$15,$30  ;background palette data  
-    .byte $0f,$2c,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
+    .byte $0f,$01,$12,$22,  $0F,$01,$03,$0A,  $0F,$04,$15,$25, $0F,$05,$15,$30  ;background palette data  
+    .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
+
 
 ScreenDefault:
     .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
@@ -7557,6 +7560,11 @@ MetaSpriteListProjectileSpell:
     .word ProjectileSpellSprite4
     .word ProjectileSpellSprite5
     .word ProjectileSpellSprite6
+    .word ProjectileSpellSprite7
+    .word ProjectileSpellSprite8
+    .word ProjectileSpellSprite9
+    .word ProjectileSpellSprite10
+
 
 MetaSpriteListExplosion:
     .word ExplosionSprite1
@@ -7808,23 +7816,37 @@ MetaSpriteSlider2:
     .byte $FF ; termination byte
 
 ProjectileSpellSprite1:
-    .byte $00,$10,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$20,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte 
 ProjectileSpellSprite2:
-    .byte $00,$11,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$21,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 ProjectileSpellSprite3:
-    .byte $00,$12,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$22,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 ProjectileSpellSprite4:
-    .byte $00,$13,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$23,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 ProjectileSpellSprite5:
-    .byte $00,$14,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$24,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
 ProjectileSpellSprite6:
-    .byte $00,$15,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $00,$25,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
     .byte $FF ; termination byte
+ProjectileSpellSprite7:
+    .byte $00,$26,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite8:
+    .byte $00,$27,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite9:
+    .byte $00,$28,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+ProjectileSpellSprite10:
+    .byte $00,$29,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
+    .byte $FF ; termination byte
+
+
 
 ExplosionSprite1: 
     .byte $00,$41,$00,$00 ;yoffset -> sprite no -> palette -> xoffset

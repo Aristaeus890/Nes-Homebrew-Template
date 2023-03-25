@@ -16,6 +16,7 @@
 .byte "<"
 .byte "3Matt" ; filler bytes to fill out the end of the header
 
+
 .scope Numbers
     Zero = 240
     One = 241 
@@ -65,6 +66,7 @@
     Scorenumberseconddigitp4 = 32
     VerticalLaser = 33
     Crystal = 34
+    OptionsScreenSelector = 35
 .endscope
 
 .scope GState
@@ -72,6 +74,7 @@
     GameStateMapSelect = 1
     GameStateGame = 2
     GameStateVictory = 3
+
 .endscope
 
 .scope ButtonReturn
@@ -93,6 +96,13 @@
     animationtimer .byte
     flags .byte 
 .endstruct
+
+.scope Options 
+    OptionPlayerCount = 0
+    OptionMap = 1 
+    OptionPalette = 2
+.endscope
+
 
 .scope EntityFlags
     NoDraw = 1
@@ -121,13 +131,13 @@
     MAXENTITIES =15; max allowed number of entities. Each entity takes a number of bytes in the zero page equal to the entity struct
     ; this CANNOT run over the end of the zero page or it will not work. If you want more entities, you will need to dedicate a non zero
     ; page ram segment to it
-    entities: .res .sizeof(Entity) * MAXENTITIES ; 6 * 30 = 180/256 bytes
-    entity_mem = .sizeof(Entity) * MAXENTITIES ; mem used
-
     vxhigh: .res 1
     vxlow: .res 1
     vxhighleft : .res 1 
     vxlowleft: .res 1
+    entities: .res .sizeof(Entity) * MAXENTITIES ; 6 * 30 = 180/256 bytes
+    entity_mem = .sizeof(Entity) * MAXENTITIES ; mem used
+
     CurrentColumnHigh: .res 1
     CurrentColumnLow: .res 1
     world: .res 2 ; this is a pointer to the address of the current screen we want to fetch tiles on
@@ -253,18 +263,22 @@ SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
     ConveyorBeltBuffer1: .res 8 
     ConveyorBeltAddress2: .res 2
     ConveyorBeltBuffer2: .res 8
-    ConveyorBeltAddress3: .res 2
-    ConveyorBeltBuffer3: .res 8 
-    ConveyorBeltAddress4: .res 2
-    ConveyorBeltBuffer4: .res 8 
     WaterfallBuffer1: .res 8
     WaterfallBuffer2: .res 8
-
     WaterfallAddress1: .res 2
     WaterfallAddress2: .res 2
     WaterfallAddress3: .res 2
     WaterfallAddress4: .res 2
 
+
+    CurrentMap: .res 1
+    CurrentPlayerCount: .res 1
+    MenuSelectorIndex: .res 1
+    CurrentPalette: .res 1
+    ; aliases
+    PlayerCountBuffer: .res 6
+    MapBuffer: .res 12
+    PaletteBuffer: .res 6
 
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
@@ -422,7 +436,7 @@ JSR LoadCollisionData
     STA PPUAddress
 
 
-JSR InitTitleScreen
+JSR InitOptionsScreen
 
 ldx #<music_data_untitled
 ldy #>music_data_untitled
@@ -436,11 +450,11 @@ LDA #$02
 STA playerflags
 
 
-LDA #$BF 
-STA IRQLATCH
-STA IRQRELOAD
-STA IRQDISABLE
-STA IRQENABLE
+; LDA #$BF 
+; STA IRQLATCH
+; STA IRQRELOAD
+; STA IRQDISABLE
+; STA IRQENABLE
 
 
 
@@ -515,10 +529,10 @@ MAINLOOP:
     :
     NMIDrawCommandReturnPoint:
 
-    LDA #$BF ;2
-    STA IRQLATCH ;4
-    STA IRQRELOAD ;4
-    STA IRQENABLE ;4
+    ; LDA #$BF ;2
+    ; STA IRQLATCH ;4
+    ; STA IRQRELOAD ;4
+    ; STA IRQENABLE ;4
 
     ; read sprites
     LDA #$00
@@ -556,6 +570,8 @@ NMIDrawCommands:
     .word NMIDrawVictoryScreen ; 6
     .word NMIDrawVictoryPlayer ; 7
     .word NMIUpdateAnimatedTiles ; 8
+    .word NMIDrawOptionsScreen ;9
+    .word NMIUpdateAnimatedTilesOptions ;a
 
 NMIAnimateCommands:
     .word NMINoCommand
@@ -689,6 +705,61 @@ NMIWriteVertTiles1:
     CMP #$23
     BNE :+
     LDA #$00
+    STA DrawFlags
+    :
+JMP NMIDrawCommandReturnPoint
+
+NMIDrawOptionsScreen:
+    LDA #%10010000
+    STA PPUControl
+    BIT PPUStatus
+    LDA CurrentColumnHigh
+    STA PPUAddress
+    LDA CurrentColumnLow
+    STA PPUAddress
+    
+    LDY #$00
+    :
+    LDA TileBuffer, Y
+    STA PPUData
+    INY
+    LDA TileBuffer, Y
+    STA PPUData
+    INY 
+    CPY #32
+    BNE :-
+
+    LDY #$00
+    :
+    LDA TileBuffer2, Y
+    STA PPUData
+    INY
+    LDA TileBuffer2, Y
+    STA PPUData
+    INY 
+    CPY #32 
+    BNE :-
+
+    LDA CurrentColumnLow
+    CLC 
+    ADC #$40
+    sta CurrentColumnLow
+    LDA CurrentColumnHigh
+    ADC #$00
+    sta CurrentColumnHigh
+    LDA currentroweven
+    CLC 
+    ADC #$10
+    STA currentroweven
+
+    ;check if we're at the end
+    LDA CurrentColumnLow
+    CMP #$C0 
+    BNE :+
+    LDA CurrentColumnHigh
+    CMP #$23
+    BNE :+
+    LDA #$0A
     STA DrawFlags
     :
 JMP NMIDrawCommandReturnPoint
@@ -887,24 +958,122 @@ NMIUpdateAnimatedTiles: ;180
     STA PPUData
     LDA WaterfallBuffer2+7
     STA PPUData
-
-
-
 JMP NMIDrawCommandReturnPoint ;
 
-IRQ:
-    PHA 
+NMIUpdateAnimatedTilesOptions:
+
+    LDA #%10010000 ;2
+    STA PPUControl ;4
+    BIT PPUStatus ;4
+    LDA #$21
+    STA PPUAddress
+    LDA #$10
+    STA PPUAddress
+    LDA PlayerCountBuffer
+    STA PPUData
+    LDA PlayerCountBuffer+1
+    STA PPUData
+    LDA PlayerCountBuffer+2
+    STA PPUData
+    LDA PlayerCountBuffer+3
+    STA PPUData
+
+    BIT PPUStatus ;4
+    LDA #$21
+    STA PPUAddress
+    LDA #$90
+    STA PPUAddress
+    LDA MapBuffer
+    STA PPUData
+    LDA MapBuffer+1
+    STA PPUData
+    LDA MapBuffer+2
+    STA PPUData
+    LDA MapBuffer+3
+    STA PPUData
+    LDA MapBuffer+4
+    STA PPUData
+    LDA MapBuffer+5
+    STA PPUData
+    LDA MapBuffer+6
+    STA PPUData
+    LDA MapBuffer+7
+    STA PPUData
+    LDA MapBuffer+8
+    STA PPUData
+    LDA MapBuffer+9
+    STA PPUData
+    LDA MapBuffer+10
+    STA PPUData
+    LDA MapBuffer+11
+    STA PPUData
+
     BIT PPUStatus
-    LDA #$00
-    STA PPUScroll
-    STA PPUScroll
-    STA IRQDISABLE
-    PLA 
+    LDA #$22
+    STA PPUAddress
+    LDA #$10
+    STA PPUAddress
+
+    LDA PaletteBuffer
+    STA PPUData
+    LDA PaletteBuffer+1
+    STA PPUData
+    LDA PaletteBuffer+2
+    STA PPUData
+    LDA PaletteBuffer+3
+    STA PPUData
+    LDA PaletteBuffer+4
+    STA PPUData
+    LDA PaletteBuffer+5
+    STA PPUData
+
+JMP NMIDrawCommandReturnPoint
+
+
+IRQ:
+    ; PHA 
+    ; BIT PPUStatus
+    ; LDA #$00
+    ; STA PPUScroll
+    ; STA PPUScroll
+    ; STA IRQDISABLE
+    ; PLA 
 RTI
 
 ;;;;;;;;;;;;;;;;;;;;
 ;; Functions to call in the main loop
 ;;;;;;;;;;;;;;;;;;;;
+
+; in a = level data to load
+PrepareLevelData:
+    ASL 
+    TAY 
+    LDA MapHeaders, Y 
+    STA jumppointer
+    LDA MapHeaders+1, Y 
+    STA jumppointer+1
+
+    LDY #$00
+    LDA (jumppointer), Y 
+    STA world
+    INY 
+    LDA (jumppointer), Y 
+    STA world+1
+
+    INY 
+    LDA (jumppointer), Y 
+    STA pallettepointer
+    INY 
+    LDA (jumppointer), Y 
+    STA pallettepointer+1
+
+    INY 
+    LDA (jumppointer), Y 
+    STA metatilepointer
+    INY 
+    LDA (jumppointer), Y 
+    STA metatilepointer+1
+RTS
 
 LoadPalletteToRam:
     LDY #$00
@@ -915,6 +1084,10 @@ LoadPalletteToRam:
     CPY #$20
     BNE LoadPalletteToRamLoop
 RTS
+
+MakePaletteBlack:
+    LDY #$00
+
 
 BrightenPallette:
     LDX #$00
@@ -959,15 +1132,6 @@ INX
 CPX #entity_mem
 BNE :-
 
-LDA #<MetaTileListTitle
-STA metatilepointer
-LDA #>MetaTileListTitle
-sta metatilepointer+1
-
-LDA #<TitleScreen
-STA world
-LDA #>TitleScreen
-STA world+1
 
 jsr SwapLeftBankToTitle
 JSR SwapRightBankToTitle
@@ -979,14 +1143,46 @@ STA CurrentColumnHigh
 LDA #$00
 STA CurrentColumnLow
 
- 
-
-
-LDA #$01
-STA PalletteFlags
-
+LDA #$00
+JSR PrepareLevelData
 
 LDA #GState::GameStateTitleScreen
+STA GameState
+
+RTS 
+
+InitOptionsScreen:
+;Clear all sprite entities
+LDX #$00
+LDA #$00
+:
+STA entities, X
+INX 
+CPX #entity_mem
+BNE :-
+
+LDA #EntityType::OptionsScreenSelector
+LDX #$40
+LDY #$40
+JSR SpawnEntity
+
+jsr SwapLeftBankToTitle
+JSR SwapRightBankToTitle
+
+LDA #$09
+STA DrawFlags
+
+
+LDA #$20
+STA CurrentColumnHigh
+LDA #$00
+STA CurrentColumnLow
+
+LDA #$03
+JSR PrepareLevelData
+
+
+LDA #GState::GameStateMapSelect
 STA GameState
 
 RTS 
@@ -1011,8 +1207,8 @@ BNE :-
 
 
 
-LDX #$80
-LDY #$90
+LDX #$40
+LDY #$10
 LDA #EntityType::Player 
 JSR SpawnEntity
 LDX #$50
@@ -1177,11 +1373,6 @@ INX
 CPX #$08
 BNE :-
 
-LDA #<MetaTileList
-STA metatilepointer
-LDA #>MetaTileList
-sta metatilepointer+1
-
 LDA #$20
 STA CurrentColumnHigh
 LDA #$00
@@ -1197,19 +1388,12 @@ STA GameTimerAddress
 LDA #$0F
 STA GameTimerAddress+1
 
-LDA #<ScreenDefault
-STA world
-LDA #>ScreenDefault
-STA world+1
-
 JSR SwapLeftBankToGame
 JSR SwapRightBankToGame
 
-LDA #<PaletteData
-STA pallettepointer
-LDA #>PaletteData
-STA pallettepointer+1
-JSR LoadPalletteToRam
+LDA #$02
+JSR PrepareLevelData
+; JSR LoadPalletteToRam
 
 RTS
 
@@ -1222,19 +1406,12 @@ STA CurrentColumnLow
 LDA #GState::GameStateVictory
 STA GameState
 
-LDA #<MetaTileListTitle
-STA metatilepointer
-LDA #>MetaTileListTitle
-sta metatilepointer+1
-
-LDA #<VictoryScreen
-STA world
-LDA #>VictoryScreen
-STA world+1
-
-
 JSR SwapRightBankToTitle
 JSR SwapLeftBankToTitle
+
+LDA #$01
+JSR PrepareLevelData
+JSR LoadPalletteToRam
 
 LDA #DFlags::ClearScreenForVictory
 STA DrawFlags
@@ -1256,17 +1433,20 @@ SelectGameStatePath:
     STA jumppointer
     LDA GameStatePath+1, Y 
     STA jumppointer+1
-    JMP (jumppointer)
+    JSR JumpToPointerRoutine
+    RTS
 
 DoTitleLogic:
     JSR ReadButtons
     JSR ProcessEntities
     JSR ProcessTitleInput
+    RTS
 
-DoMapSelectLogic:
-    JSR ReadButtons
-    JSR ProcessEntities
-    JSR ProcessMapSelectInput
+; DoMapSelectLogic:
+;     JSR ReadButtons
+;     ; JSR ProcessMapSelectInput
+;     JSR ProcessEntities
+;     RTS
 
 DoGameLogic:
     JSR ProcessSpawnStack
@@ -1279,6 +1459,13 @@ DoGameLogic:
     JSR ProcessPlayerSpawnStack
     JSR CheckForGameEnd
     RTS 
+
+DoOptionsLogic:
+    JSR ReadButtons
+    JSR ProcessOptionsInput
+    JSR ProcessEntities
+    JSR FillOptionsBuffer
+RTS
 
 WaitForGameLoad:
     LDA DrawFlags
@@ -1293,16 +1480,180 @@ RTS
 DoVictoryScreenLogic:
 RTS
 
-ProcessMapSelectInput:
+ProcessOptionsInput:
+    JSR CheckDown
+    BEQ :++
+    LDA MenuSelectorIndex
+    CLC
+    ADC #$01
+    CMP #OPTIONSNUMBER
+    BCC :+
+    LDA #$00
+    :
+    STA MenuSelectorIndex
+    :
+    JSR CheckUp
+    BEQ :+
+    DEC MenuSelectorIndex
+    BPL :+ 
+    LDA #OPTIONSNUMBER-1
+    STA MenuSelectorIndex
+    :
+
+    LDA MenuSelectorIndex
+    ASL
+    TAY 
+    LDA OptionsChangerList, Y 
+    STA jumppointer
+    LDA OptionsChangerList+1, Y 
+    STA jumppointer+1
+    JSR JumpToPointerRoutine
+
+    JSR CheckStart
+    BEQ :+
+    JSR InitGameHat
+    :
+
 RTS
+
+OptionsChangerList:
+    .word OptionsChangePlayerCount
+    .word OptionsChangeMap
+    .word OptionsChangePalette
+
+OptionsChangePlayerCount:
+    JSR CheckLeft
+    CMP #ButtonReturn::Release
+    BNE :+
+    DEC CurrentPlayerCount
+    :
+    JSR CheckRight
+    CMP #ButtonReturn::Release
+    BNE :+
+    INC CurrentPlayerCount
+    :
+
+    LDA CurrentPlayerCount
+    CMP #$04
+    BNE :+
+    LDA #$00
+    STA CurrentPlayerCount
+    :
+    LDA CurrentPlayerCount
+    BPL :+
+    LDA #$03
+    STA CurrentPlayerCount
+    :
+
+
+
+RTS
+
+OptionsChangeMap:
+    JSR CheckLeft
+    CMP #ButtonReturn::Release
+    BNE :+
+    DEC CurrentMap
+    :
+    JSR CheckRight
+    CMP #ButtonReturn::Release
+    BNE :+
+    INC CurrentMap
+    :
+
+    LDA CurrentMap
+    CMP #$04
+    BNE :+
+    LDA #$00
+    STA CurrentMap
+    :
+    LDA CurrentMap
+    BPL :+
+    LDA #$03
+    STA CurrentMap
+    :
+
+
+RTS
+
+OptionsChangePalette:
+    INC CurrentPalette
+    JSR CheckLeft
+    CMP #ButtonReturn::Release
+    BNE :+
+    DEC CurrentPalette
+    :
+    JSR CheckRight
+    CMP #ButtonReturn::Release
+    BNE :+
+    INC CurrentPalette
+    :
+    LDA CurrentPalette
+    CMP #$04
+    BNE :+
+    LDA #$00
+    STA CurrentPalette
+    :
+    LDA CurrentPalette
+    BPL :+
+    LDA #$03
+    STA CurrentPalette
+    :
+RTS
+
+FillOptionsBuffer:
+    LDX #$00
+    LDY #$00
+    :
+    LDA CurrentPlayerCount
+    STA PlayerCountBuffer, X
+    INX 
+    CPX #$09
+    BNE :-
+
+    LDA CurrentMap
+    ASL 
+    TAY 
+    LDA MapNameList, Y 
+    STA jumppointer
+    LDA MapNameList+1, Y 
+    STA jumppointer+1
+
+    LDY #$00
+    :
+    LDA (jumppointer), Y 
+    STA MapBuffer, Y 
+    INY 
+    CPY #$12
+    BNE :- 
+
+    LDA CurrentPalette
+    ASL 
+    TAY 
+    LDA PaletteNameList, Y 
+    STA jumppointer
+    LDA PaletteNameList+1, Y
+    STA jumppointer+1
+
+    LDY #$00
+    :
+    LDA (jumppointer), Y 
+    STA PaletteBuffer, Y 
+    INY 
+    CPY #$07
+    BNE :-
+
+
+RTS
+
 
 ProcessTitleInput:
     ; JSR CheckStart
     ; CMP #ButtonReturn::Release
     LDA rng
-    CMP #$FF
+    CMP #$ff
     BNE :+
-        JSR InitGameHat
+        ; JSR InitGameHat
     :
     RTS
 
@@ -1888,6 +2239,7 @@ StateMachineList:
     .word ScoreNumberDigit2StateMachineP2
     .word VerticalLaserStateMachine
     .word CrystalStateMachine
+    .word OptionsScreenSelectorStateMachine
 
 PlayerStateMachine:
     .word PlayerInit;0
@@ -2069,6 +2421,11 @@ CrystalStateMachine:
     .word CrystalIdle
 ; Entity Behaviours
 
+OptionsScreenSelectorStateMachine:
+    .word OptionScreenSelectorInit
+    .word OptionScreenSelectorProcess
+
+
 PlayerInit:
     LDA #%00000000
     STA entities+Entity::attributes, X
@@ -2111,6 +2468,7 @@ Player4Init:
     JMP EntityComplete
 
 PlayerOnFloor:
+    JSR PlayerApplyFriction
     JSR PlayerAttack
     ; left/right movement
     JSR CheckRight
@@ -2121,7 +2479,6 @@ PlayerOnFloor:
     BEQ :+
         JSR PlayerSubSpeed
     :
-    JSR PlayerApplyFriction
     ; :
     ; apply velocity then collide
     JSR PlayerApplyVelocityX
@@ -2147,14 +2504,7 @@ PlayerOnFloor:
     ; Check for jump
     INC entities+Entity::ypos, X
     JSR CheckA
-    Beq :+
-    ;     JSR CollideDown2
-    ;     BEQ :+
-    ;     DEC entities+Entity::ypos, X
-    ;     JSR CollideUp2
-    ;     BNE :+
-    ;     INC entities+Entity::ypos, X
-
+    BEQ :+
         LDA #$00
         STA playerjumptrack
         LDA #$03 ; set state to jumping
@@ -2165,8 +2515,8 @@ PlayerOnFloor:
 PlayerMoving:
     JMP EntityComplete 
 PlayerJumping:
-    ; dec entities+Entity::ypos, X
     ; left/right movement
+    JSR ApplyFriction
     JSR CheckRight
     BEQ :+
         JSR PlayerAddSpeed
@@ -2199,13 +2549,14 @@ PlayerJumping:
     NoJumpTrackEnd:
     ;check for headbonk
     JSR CollideUp2
-    ; CMP #$04
-    ; BEQ :+
-    ; CMP #$00
+    CMP #04
     BEQ :+
-        ; LDA #$05
-        ; STA entities+Entity::generalpurpose, X
+    CMP #$00
+    BEQ :+
+        LDA #$05
+        STA entities+Entity::generalpurpose, X
         JSR EjectFromTopWall
+        JMP EntityComplete
     :
     
     ; apply movement
@@ -2218,6 +2569,7 @@ PlayerJumpReleased:
     JMP EntityComplete
 PlayerHeadbonk:
     ; left/right movement
+    JSR ApplyFriction
     JSR CheckRight
     BEQ :+
         JSR PlayerAddSpeed
@@ -2246,6 +2598,8 @@ PlayerHeadbonk:
     JSR EjectFromLeftWall
     JMP EntityComplete
 PlayerFalling:
+    JSR ApplyFriction
+    JSR CheckA
     ; left/right movement
     JSR CheckRight
     Beq :+
@@ -2290,6 +2644,7 @@ PlayerFalling:
     
     JMP EntityComplete
 PlayerFallingThroughPlatform:
+    JSR ApplyFriction
     ; left/right movement
     JSR CheckRight
     BEQ :+
@@ -2349,16 +2704,33 @@ PlayerApplyFriction:
     STA vxhighleft
     STA vxlowleft
     :
+    LDA vxhigh
+    BPL :+
+    LDA #$00
+    STA vxhigh
+    STA vxlow
+    :
+    LDA vxhighleft
+    BPL :+
+    LDA #$00
+    STA vxhighleft
+    STA vxlowleft
+    :
+
+
+RTS
 
 
 PlayerApplyVelocityX:
-    LDA vxlow
+    LDA entities+Entity::xpossub, X 
     CLC 
-    ADC entities+Entity::xpossub, X 
+    ADC vxlow
     STA entities+Entity::xpossub, X 
     LDA entities+Entity::xpos, X 
     ADC vxhigh
     STA entities+Entity::xpos, X
+
+
     LDA entities+Entity::xpossub, X 
     SEC 
     SBC vxlowleft
@@ -2630,22 +3002,22 @@ AddSpeedP4:
 
 SubSpeedP1:
     ; add to low vel and carry to high
-    LDA #PLAYERACCELLERATION
-    SEC 
-    SBC vxlowleft
+    LDA vxlowleft
+    CLC 
+    ADC #PLAYERACCELLERATION
     STA vxlowleft
     LDA vxhighleft
-    SBC #$00
+    ADC #$00
     STA vxhighleft
     ; :
     ; cap speed
-    LDA vxhigh
-    CMP #$FF
-    BCS :+
-    LDA #$FF 
-    STA vxhigh
+    LDA vxhighleft
+    CMP #$01
+    BCC :+
+    LDA #$01 
+    STA vxhighleft
     LDA #00
-    STA vxlow
+    STA vxlowleft
     :
 RTS
 
@@ -4005,6 +4377,24 @@ CrystalIdle:
     :
     JMP EntityComplete
 
+OptionScreenSelectorInit:
+    LDA #$01
+    STA entities+Entity::generalpurpose, X
+    JMP EntityComplete
+
+OptionScreenSelectorProcess:
+
+    LDA MenuSelectorIndex
+    asl 
+    asl
+    asl
+    asl
+    ASL
+    ADC #$40
+    STA entities+Entity::ypos, X
+    JMP EntityComplete
+
+
 ClearEntity:
     ; wasteful but safer to clear all and not just type
     LDA #$00 
@@ -4462,7 +4852,7 @@ CheckSelect:
     LDA buttonflag
     ORA #$04 
     STA buttonflag    
-    LDA ButtonReturn::Press
+    LDA #ButtonReturn::Press
     RTS
     CheckSelectRelease:
         LDA buttonflag
@@ -4471,10 +4861,10 @@ CheckSelect:
         LDA buttonflag
         EOR #$04 
         STA buttonflag
-        LDA ButtonReturn::Release
+        LDA #ButtonReturn::Release
         RTS 
 :
-LDA ButtonReturn::NoPress
+LDA #ButtonReturn::NoPress
 RTS 
 
 CheckStart:
@@ -4484,7 +4874,7 @@ CheckStart:
     LDA buttonflag
     ORA #$08
     STA buttonflag
-    LDA ButtonReturn::Press
+    LDA #ButtonReturn::Press
     RTS
     CheckStartRelease:
         LDA buttonflag
@@ -4493,10 +4883,10 @@ CheckStart:
         LDA buttonflag
         EOR #$08 
         STA buttonflag
-        LDA ButtonReturn::Release
+        LDA #ButtonReturn::Release
         RTS 
 :
-LDA ButtonReturn::NoPress
+LDA #ButtonReturn::NoPress
 RTS 
 
 CheckUp:  
@@ -4506,7 +4896,7 @@ CheckUp:
     LDA buttonflag
     ORA #$10
     STA buttonflag
-    LDA ButtonReturn::Press
+    LDA #ButtonReturn::Press
     RTS
     CheckUpRelease:
         LDA buttonflag
@@ -4515,10 +4905,10 @@ CheckUp:
         LDA buttonflag
         EOR #$10 
         STA buttonflag
-        LDA ButtonReturn::Release
+        LDA #ButtonReturn::Release
         RTS 
 :
-LDA ButtonReturn::NoPress
+LDA #ButtonReturn::NoPress
 RTS 
 
 CheckDown:
@@ -4528,7 +4918,7 @@ CheckDown:
     LDA buttonflag 
     ORA #$20 
     STA buttonflag 
-    LDA ButtonReturn::Press
+    LDA #ButtonReturn::Press
     RTS
     CheckDownRelease:
         LDA buttonflag
@@ -4537,10 +4927,10 @@ CheckDown:
         LDA buttonflag
         EOR #$20 
         STA buttonflag
-        LDA ButtonReturn::Release
+        LDA #ButtonReturn::Release
         RTS 
 :
-LDA ButtonReturn::NoPress
+LDA #ButtonReturn::NoPress
 RTS 
 
 CheckLeft:
@@ -6733,6 +7123,7 @@ DrawSpriteList:
     .word MetaSpriteListScoreNumber
     .word MetaSpriteListVerticalLaser
     .word MetaSpriteListCrystal
+    .word MetaspriteListOptionSelector
 ;;;;;;;;
 ;; DEATH FUNCTIONS
 ;; These are all called from ProcessDestructionStack and MUST return there when they finish
@@ -7296,66 +7687,62 @@ MetaTileList:
 
 MetaTileListTitle:
     .word titleblank
-    .word titlewordplayer1
-    .word titlewordplayer2
-    .word titlewordplayer3
-    .word titlewordplayer4
-    .word titleone1
-    .word titleone2
-    .word titletwo1
-    .word titletwo2
-    .word titlethree1
-    .word titlethree2
-    .word titlethree3
-    .word titlefour1
-    .word titlefour2
-    .word titlefour3
+    .word titlepressstart1
+    .word titlepressstart2
+    .word titlepressstart3
+
+    .word titleplayercount1
+    .word titleplayercount2
+    .word titleplayercount3
+
+    .word titlegamemode1
+    .word titlegamemode2
+
+    .word titlemap
+    .word titlepalette1
+    .word titlepalette2
 
 titleblank:
-    .byte $00,$00
-    .byte $00,$00
-titlewordplayer1:
-    .byte $47,$48
-    .byte $57,$58
-titlewordplayer2:
-    .byte $49,$4A
-    .byte $59,$5A
-titlewordplayer3:
-    .byte $4B,$4C
-    .byte $5B,$5C
-titlewordplayer4:
-    .byte $4D,$4E
-    .byte $5D,$5C
-titleone1:
-    .byte $00,$00
-    .byte $00,$00
-titleone2:
-    .byte $00,$00
-    .byte $00,$00
-titletwo1:
-    .byte $00,$00
-    .byte $00,$00
-titletwo2:
-    .byte $00,$00
-    .byte $00,$00
-titlethree1:
-    .byte $00,$00
-    .byte $00,$00
-titlethree2:
-    .byte $00,$00
-    .byte $00,$00
-titlethree3:
-    .byte $00,$00
-    .byte $00,$00
-titlefour1:
-    .byte $00,$00
-    .byte $00,$00
-titlefour2:
-    .byte $00,$00
-    .byte $00,$00
-titlefour3:
-    .byte $00,$00
-    .byte $00,$00
+    .byte $ff,$ff
+    .byte $ff,$ff
+titlepressstart1:
+    .byte $B0,$B1
+    .byte $ff,$ff
+titlepressstart2:
+    .byte $B2,$B3
+    .byte $ff,$ff
+titlepressstart3:
+    .byte $B4,$B5
+    .byte $ff,$ff
+titleplayercount1:
+    .byte $B6,$B7
+    .byte $ff,$ff
+titleplayercount2:
+    .byte $B8,$B9
+    .byte $ff,$ff
+titleplayercount3:
+    .byte $BA,$BB
+    .byte $ff,$ff
+titlegamemode1:
+    .byte $BC,$BD
+    .byte $ff,$ff
+titlegamemode2:
+    .byte $CC,$CD
+    .byte $ff,$ff
+titlemap:
+    .byte $BE,$BF
+    .byte $ff,$ff
+titlepalette1:
+    .byte $DC,$DD
+    .byte $ff,$ff
+titlepalette2:
+    .byte $DE,$DF
+    .byte $ff,$ff
+
+;Palette Data
+PaletteDataList:
+    .word PaletteDataCandyLand
+    .word PaletteDataGray
 
 PalletteDataBlack:
     .byte $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0F
@@ -7366,32 +7753,90 @@ PaletteDataGray:
     .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
 
 PaletteDataCandyLand:
-    .byte $04,$15,$26,$37,  $04,$09,$1a,$2b,  $04,$06,$17,$27, $04,$05,$15,$30  ;background palette data  
+    .byte $04,$15,$26,$37,  $04,$09,$1a,$2b,  $04,$06,$17,$14, $04,$05,$15,$30  ;background palette data  
     .byte $04,$06,$16,$30,  $04,$1A,$2A,$30,  $04,$13,$23,$30, $04,$2d,$3D,$30  ;sprite palette data
 
 
 PaletteData:
-    .byte $0f,$01,$12,$22,  $0F,$01,$03,$0A,  $0F,$04,$15,$25, $0F,$05,$15,$30  ;background palette data  
+    .byte $0f,$01,$12,$22,  $0F,$01,$03,$0A,  $0F,$05,$16,$19, $0F,$05,$15,$30  ;background palette data  
     .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
+
+; Map Headers
+MapNameList:
+    .word MapNameGarden
+    .word MapNameRest
+    .word MapNameRampart
+    .word MapNameTower
+
+MapNameGarden:
+    .byte $D0,$D1,$D2,$D3,$D4,$D5,$D6,$D7,$D8,$d9,$DA,$DB
+MapNameRest:
+    .BYTE $E0,$E1,$E2,$E3,$E4,$E5,$FF,$FF,$FF
+MapNameRampart:
+    .BYTE $F0,$F1,$F2,$F3,$F4,$F5,$F6,$F7,$F8
+MapNameTower:
+    .BYTE $C0,$C1,$C2,$C3,$C4,$C5,$C6,$FF,$FF
+
+PaletteNameList:
+    .word PaletteNameBlood
+    .word PaletteNameCandy
+    .word PaletteNameByzantine
+    .word PaletteNameGrayscale
+
+PaletteNameBlood:
+    .byte $f9,$FA,$FB,$FC,$FD,$FF
+PaletteNameCandy:
+    .byte $C7,$C8,$C9,$CA,$CB,$FF
+PaletteNameByzantine:
+    .byte $E6,$E7,$E8,$E9,$EA,$FF
+PaletteNameGrayscale:
+    .byte $EB,$EC,$ED,$EE,$EF,$EF
+
+MapHeaders:
+    .word MapHeaderTitle
+    .word MapHeaderVictory
+    .word MapHeaderRampart
+    .word MapHeaderOptions
+
+MapHeaderRampart:
+    .word ScreenDefault ; map screen
+    .word PaletteDataCandyLand ; default palette
+    .word MetaTileList
+
+MapHeaderTitle:
+    .word ScreenTitle ; map screen
+    .word PaletteData ; pal
+    .word MetaTileListTitle
+
+MapHeaderVictory:
+    .word ScreenVictory
+    .word PaletteData
+    .word MetaTileListTitle
+
+MapHeaderOptions:
+    .word ScreenOptions ; map screen
+    .word PaletteData ; pal
+    .word MetaTileListTitle
 
 
 ScreenDefault:
     .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
     .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$00,$00,$00,$00,$00,$23
-    .byte $24,$35,$36,$37,$38,$39,$11,$0E,$0F,$3A,$3B,$3C,$3D,$3E,$00,$23
+    .byte $24,$21,$22,$21,$22,$21,$11,$0E,$0F,$21,$22,$21,$22,$21,$00,$23
     .byte $24,$00,$04,$05,$04,$05,$00,$10,$01,$00,$04,$05,$00,$04,$05,$23
     .byte $24,$34,$04,$05,$00,$00,$30,$30,$1D,$19,$1A,$21,$22,$19,$1A,$23
     .byte $24,$2b,$04,$05,$00,$08,$09,$00,$05,$02,$00,$02,$10,$02,$00,$23
     .byte $29,$2b,$04,$05,$00,$0A,$0B,$00,$00,$02,$00,$02,$00,$02,$40,$29
     .byte $24,$2b,$21,$22,$21,$22,$21,$21,$10,$21,$1F,$20,$3F,$00,$00,$23
     .byte $24,$33,$23,$24,$02,$00,$00,$04,$05,$00,$40,$02,$00,$3F,$00,$23
-    .byte $29,$12,$25,$26,$32,$00,$03,$04,$05,$02,$00,$32,$00,$1D,$30,$23
-    .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$41,$3f,$02,$00,$10,$05,$23
-    .byte $24,$00,$0A,$0B,$02,$32,$03,$19,$1A,$42,$3f,$19,$1A,$00,$00,$23
-    .byte $00,$00,$32,$32,$00,$00,$41,$00,$00,$43,$3f,$00,$00,$00,$00,$00
+    .byte $29,$12,$25,$26,$32,$00,$03,$04,$05,$02,$00,$00,$00,$1D,$30,$23
+    .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$41,$3f,$3F,$00,$10,$05,$23
+    .byte $24,$00,$32,$32,$02,$32,$03,$19,$1A,$42,$3f,$19,$1A,$00,$00,$23
+    .byte $00,$00,$00,$00,$00,$00,$41,$00,$00,$43,$3f,$00,$00,$00,$00,$00
     .byte $07,$07,$39,$39,$39,$39,$2B,$3F,$3F,$2B,$3A,$3A,$3A,$3A,$07,$07
     .byte $06,$06,$06,$06,$06,$06,$00,$00,$00,$00,$06,$06,$06,$06,$06,$06
-TitleScreen:
+
+ScreenTitle:
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
@@ -7408,7 +7853,25 @@ TitleScreen:
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
 
-VictoryScreen:
+ScreenOptions:
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$04,$05,$06,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$07,$08,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$09,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$0A,$0B,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+
+
+ScreenVictory:
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
@@ -7446,7 +7909,7 @@ Sin:
 
 GameStatePath:
     .word DoTitleLogic
-    .word DoMapSelectLogic
+    .word DoOptionsLogic
     .word DoGameLogic
     .word DoVictoryScreenLogic
     .word WaitForGameLoad
@@ -7663,6 +8126,8 @@ MetaSpriteListCrystal:
     .word CrystalSprite2
     .word CrystalSprite3
 
+MetaspriteListOptionSelector:
+    .word OptionSelectorSprite1
 
 PlayerSpriteIdle1:
     .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
@@ -8122,7 +8587,33 @@ CrystalSprite2:
     .byte $ff
 
 CrystalSprite3:
-    .byte $00,$CD,$00,$00
+    .byte $00,$00,$00,$00
+
+    .byte $ff
+
+OptionSelectorSprite1:
+    .byte $05,$12,$00,$00
+    .byte $00,$13,$00,$40
+    .byte $ff
+
+OptionSelectorSprite2:
+    .byte $05,$12,$00,$00
+    .byte $00,$13,$00,$40
+    .byte $ff
+
+OptionSelectorSprite3:
+    .byte $05,$12,$00,$00
+    .byte $00,$13,$00,$40
+    .byte $ff
+
+OptionSelectorSprite4:
+    .byte $05,$12,$00,$00
+    .byte $00,$13,$00,$40
+    .byte $ff
+
+OptionSelectorSprite5:
+    .byte $05,$12,$00,$00
+    .byte $00,$13,$00,$40
     .byte $ff
 
 

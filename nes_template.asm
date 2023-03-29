@@ -323,6 +323,7 @@ SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
         TXA
 
 ;; This clears out the memory when we start up
+nop
 CLEARMEM:
     STA $0000, X ; Zero page memory
     STA $0100, X 

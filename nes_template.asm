@@ -3,135 +3,22 @@
 
 .include "constants.asm" 
 
-; INes 1.0
+; INes 2.0 
 .segment "HEADER" 
-.byte "NES"
-.byte $1a
-.byte $02 ; 2 * 16KB PRG ROM
-.byte $05 ; 5 * 8KB CHR ROM
-.byte %01000011 ; mapper and mirroring
-.byte $00 ; unused extension
-.byte $00 ; unused extension
-.byte $00 ; unused extension
-.byte "<"
-.byte "3Matt" ; filler bytes to fill out the end of the header
-
-
-.scope Numbers
-    Zero = 240
-    One = 241 
-    Two = 242 
-    Three = 243
-    Four = 244
-    Five = 245
-    Six = 246
-    Seven = 247
-    Eight = 248 
-    Nine = 249
-.endscope
-
-.scope EntityType ; NB this should match the order in the process entity list in order for the jump table to hit the right address
-    NoEntity = 0
-    Player = 1
-    Player2 = 2
-    Player3 = 3
-    Player4 = 4
-    Slider = 5
-    ProjectileSpell = 6
-    Explosion = 7
-    LightningEmitter = 8 
-    Sparks = 9 
-    Lightning = 10
-    Fireball = 11
-    Respawner = 12
-    RespawnerPortal = 13
-    RespawnerBroomStick = 14
-    IceBeam = 15
-    Teleporter = 16
-    TeleporterP2 = 17
-    TeleporterP3 = 18
-    TeleporterP4 = 19
-    Hat = 20
-    Scoretextp1 = 21
-    Scoretextp2 = 22
-    Scoretextp3 = 23
-    Scoretextp4 = 24
-    Scorenumberp1 = 25
-    Scorenumberp2 = 26
-    Scorenumberp3 = 27
-    Scorenumberp4 = 28
-    Scorenumberseconddigitp1 = 29
-    Scorenumberseconddigitp2 = 30
-    Scorenumberseconddigitp3 = 31
-    Scorenumberseconddigitp4 = 32
-    VerticalLaser = 33
-    Crystal = 34
-    OptionsScreenSelector = 35
-.endscope
-
-.scope GState
-    GameStateTitleScreen = 0
-    GameStateMapSelect = 1
-    GameStateGame = 2
-    GameStateVictory = 3
-
-.endscope
-
-.scope ButtonReturn
-    NoPress = 0
-    Press = 1
-    Release = 2
-.endscope
-
-.struct Entity ;  base entity structure
-    type .byte ; each entity has its own type assigned, if you somehow make more than 255 entities than idk what to do
-    xpos .byte ; x position
-    ypos .byte ; y position
-    xpossub .byte 
-    ypossub .byte 
-    attributes .byte ;
-    collisionlayer .byte ; which of the 4 active palettes this sprite should use
-    generalpurpose .byte ; this has no specific use, it can be defined on a per entity basis
-    animationframe .byte
-    animationtimer .byte
-    flags .byte 
-.endstruct
-
-.struct MapHeader 
-    mapdata .word 
-    palettedata .word 
-    metatiledata .word 
-.endstruct
-
-.scope Options 
-    OptionPlayerCount = 0
-    OptionMap = 1 
-    OptionPalette = 2
-.endscope
-
-
-.scope EntityFlags
-    NoDraw = 1
-    NoProcess = 2
-    FlipH = 4 
-    FlipV = 8
-    ; a = 16
-    ; b = 32 
-    ; c = 64 
-    ; d = 128
-.endscope
-
-.scope DFlags
-    NoDraw = 0
-    ClearVertTiles1 = 1
-    ClearVertTiles2 = 2
-    WriteVertTiles1 = 3
-    FillTileBuffer = 3
-    SwapPallette = 4
-    ClearScreenForVictory = 5
-    WriteVictoryText = 6
-    WriteVictoryPlayer = 7
-.endscope
+.byte "NES" ;0-2 
+.byte $1a ;3
+.byte $02 ; 2 * 16KB PRG ROM - least sig byte
+.byte $05 ; 5 * 8KB CHR ROM  - lsb
+.byte %01000001 ; mapper and mirroring
+.byte %00001000 ; console type 
+.byte $00
+.byte $00 ; size msb
+.byte $00 ; prg ram
+.byte $00 ; chr ram size
+.byte $00 ; cpu timing
+.byte $00
+.byte $00
+.byte $00
 
 .segment "ZEROPAGE" ; 0-FF. One page of ram that is faster access than rest of the ram. Use for values most frequently used
     MAXENTITIES =15; max allowed number of entities. Each entity takes a number of bytes in the zero page equal to the entity struct
@@ -293,6 +180,7 @@ SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
     NMIEnableLevelEffects: .res 1
     CurrentCloudBank: .res 1
     CloudbankTimer: .res 1
+    
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
         SEI ; Disables all interrupts
@@ -323,7 +211,6 @@ SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
         TXA
 
 ;; This clears out the memory when we start up
-nop
 CLEARMEM:
     STA $0000, X ; Zero page memory
     STA $0100, X 
@@ -342,20 +229,17 @@ CLEARMEM:
 :
     BIT PPUStatus
     BPL :-
+:
+    BIT PPUStatus
+    BPL :-
+:
+    BIT PPUStatus
+    BPL :-
 
     LDA #$02
     STA OAMDMA
-    NOP
-
-    ; $3F00 == palette address
-    LDA #$3F
-    STA PPUAddress
-    LDA #$00
-    STA PPUAddress
 
     LDX #$00
-
-.segment "CODE"
 
 LDA #$20
 STA CurrentColumnHigh
@@ -389,13 +273,19 @@ JSR LoadPalletteToRam
 ;         CPX #$20 
 ;         BNE FillPaletteRam
 ;         LDX #$00
-LDX #$00 
-    LoadtoPPU:
-        LDA CurrentBackgroundPalette, X 
-        STA PPUData ; $3F00, $3F01, $3F02 => $3F1F
-        INX
-        CPX #$20
-        BNE LoadtoPPU 
+LDX #$00
+BIT PPUStatus 
+LDA #$3F
+STA PPUAddress
+LDA #$00
+STA PPUAddress
+
+LoadtoPPU:
+    LDA CurrentBackgroundPalette, X 
+    STA PPUData ; $3F00, $3F01, $3F02 => $3F1F
+    INX
+    CPX #$20
+    BNE LoadtoPPU 
 
 ; For the prng to work, it needs a seed of any nonzero number to start at
 InitSeed: 
@@ -403,27 +293,9 @@ InitSeed:
     STA seed
     STA seed+1
 
-
-
-
-InitWorld:
-    LDA #< ScreenDefault ; take the low byte
-    STA world ; store low byte in z page
-    LDA #> ScreenDefault ; take the high byte
-    STA world+1 ; store high into the world address +1 i.e the second byte of the address
-
-; setup address in PPU for nametable data
-    BIT PPUStatus ; reading PPUStatus sets the latch to access scrolling and writing to the PPU 
-    LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA PPUAddress
-    LDA #$00
-    STA PPUAddress
-
-    LDX #$00
-    LDY #$00
-                
 SetAttributes:
     LDX #$00
+    BIT PPUStatus
     LDA #$23
     STA PPUAddress
     LDA #$C0
@@ -442,18 +314,17 @@ LDA #>ScreenTower
 STA world+1
 JSR LoadCollisionData
 
-
-    BIT PPUControl
-    LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
-    STA PPUAddress
-    LDA #$00
-    STA PPUAddress
+BIT PPUControl
+LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
+STA PPUAddress
+LDA #$00
+STA PPUAddress
 
 
 JSR InitGameHat
 
-ldx #<music_data_untitled
-ldy #>music_data_untitled
+; ldx #<music_data_untitled
+; ldy #>music_data_untitled
         
 ; lda #$01 ; NTSC
 ; jsr famistudio_init
@@ -464,26 +335,16 @@ LDA #$02
 STA playerflags
 
 
-; LDA #$BF 
-; STA IRQLATCH
-; STA IRQRELOAD
-; STA IRQDISABLE
-; STA IRQENABLE
-
-
-
-
-
-; LDA #$00
-; LDA #DFlags::ClearVertTiles1
-; STA DrawFlags
-
 ; Enable Rendering
 LDA #%10010000
 STA PPUControl
 LDA #%00111110
 STA PPUMask
 CLI
+
+
+
+.segment "CODE"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;; Main Loop
@@ -530,9 +391,6 @@ MAINLOOP:
 
     ;10
 
-    LDA #$00 ;2
-    STA PPUMask ;4 ; disable rendering before we access the ppu for safety
-
     ; Check if we're drawing new tiles via jump table
     LDA DrawFlags ;3
     BEQ :+ ;2/3
@@ -566,7 +424,7 @@ MAINLOOP:
 
     ; read sprites
     LDA #$00
-    STA $2003 
+    STA OAMAddress 
     LDA #$02 
     STA OAMDMA
 
@@ -575,8 +433,6 @@ MAINLOOP:
     STA PPUScroll;4
     STA PPUScroll;4
 
-    LDA #%10011110;2
-    STA PPUMask;4 ; reenable rendering for the ppu
     INC nmidone;5
 
 
@@ -1326,23 +1182,23 @@ INX
 CPX #entity_mem
 BNE :-
 
-LDX #$40
+LDX #$20
 LDY #$20
 LDA #EntityType::Player 
 JSR SpawnEntity
 LDX #$50
 LDY #$10
-LDA #EntityType::ProjectileSpell
-jsr SpawnEntity
+; LDA #EntityType::ProjectileSpell
+; jsr SpawnEntity
 
-LDX #$a0
-LDY #$10
-LDA #EntityType::Crystal
-JSR SpawnEntity
+; LDX #$a0
+; LDY #$10
+; LDA #EntityType::Crystal
+; JSR SpawnEntity
 
-LDX #$10
-LDY #$40
-LDA #EntityType::VerticalLaser
+; LDX #$10
+; LDY #$40
+; LDA #EntityType::VerticalLaser
 ; JSR SpawnEntity
 
 ; LDX #$80
@@ -2737,7 +2593,7 @@ VerticalLaserStateMachine:
     .word VerticalLaserInit
     .word VerticalLaserNormal
 
-CrystalStateMachine:
+ CrystalStateMachine:
     .word CrystalInit
     .word CrystalIdle
 ; Entity Behaviours
@@ -2846,6 +2702,11 @@ PlayerJumping:
     BEQ :+
         JSR PlayerSubSpeed
     :
+    ; apply movement
+    JSR PlayerApplyVelocityX
+    JSR EjectFromLeftWall
+    JSR EjectFromRightWall
+
     ; jump velocity handling
     LDY playerjumptrack
     LDA JumpStrength, Y
@@ -2880,10 +2741,6 @@ PlayerJumping:
         JMP EntityComplete
     :
     
-    ; apply movement
-    JSR PlayerApplyVelocityX
-    JSR EjectFromLeftWall
-    JSR EjectFromRightWall
 
     JMP EntityComplete
 PlayerJumpReleased:
@@ -2899,6 +2756,11 @@ PlayerHeadbonk:
     BEQ :+
         JSR PlayerSubSpeed
     :
+    ; apply movement
+    JSR PlayerApplyVelocityX
+    JSR EjectFromLeftWall
+    JSR EjectFromRightWall
+
     ;jump velocity handling
     LDY playerjumptrack
     LDA HeadbonkStrength, Y
@@ -2914,9 +2776,6 @@ PlayerHeadbonk:
     STA entities+Entity::generalpurpose, X
     :
     JSR EjectFromTopWall
-    JSR PlayerApplyVelocityX
-    JSR EjectFromRightWall
-    JSR EjectFromLeftWall
     JMP EntityComplete
 PlayerFalling:
     JSR ApplyFriction
@@ -2975,6 +2834,11 @@ PlayerFallingThroughPlatform:
     BEQ :+
         JSR PlayerSubSpeed
     :
+    ; apply movement
+    JSR PlayerApplyVelocityX
+    JSR EjectFromLeftWall
+    JSR EjectFromRightWall
+
     ; fall
     LDA vylow
     ADC #PLAYERFALLSPEED
@@ -2992,8 +2856,6 @@ PlayerFallingThroughPlatform:
         LDA #$06
         sta entities+Entity::generalpurpose, X
     :
-    JSR EjectFromRightWall
-    JSR EjectFromLeftWall
     jmp EntityComplete
 PlayerDisabled:
     JMP EntityComplete
@@ -6078,55 +5940,6 @@ CollideLeft2:
     ; LDA temp3
     RTS 
 
-CollideLeft:
-    LDA entities+Entity::xpos, X
-    SEC
-    SBC #$01 ; add 8 pixels for a single sprite
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    STA temp
-
-    LDA entities+Entity::ypos, X 
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    CLC 
-    ADC temp
-    TAY 
-    LDA CollisionMap, Y 
-    STA temp2 
-
-    LDA entities+Entity::ypos, X
-    CLC 
-    ADC #$07
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    CLC 
-    ADC temp 
-    TAY 
-    LDA CollisionMap, Y 
-    ORA temp2
-
-    RTS 
-
 CollideRight2:
 
     CollideRight2Loop:
@@ -6264,55 +6077,6 @@ CollideRight2:
     ;     JMP CollideRight2Loop
     ; :
     ; LDA temp3
-    RTS 
-
-CollideRight: ; only to be called dfrom process entities
-    LDA entities+Entity::xpos, X
-    CLC 
-    ADC #$08 ; add 8 pixels for a single sprite 
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    STA temp
-
-    LDA entities+Entity::ypos, X 
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    CLC 
-    ADC temp
-    TAY 
-    LDA CollisionMap, Y 
-    STA temp2 
-
-    LDA entities+Entity::ypos, X
-    CLC 
-    ADC #$07
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    CLC 
-    ADC temp 
-    TAY 
-    LDA CollisionMap, Y 
-    ORA temp2
-
     RTS 
 
 CollideDown2:
@@ -6467,212 +6231,6 @@ CollideDown2:
     ; lda #$04
     RTS 
 
-CollideDown3:
-
-    ; LDA #$3f
-    ; STA $2001
-    
-    LDA #$00
-    STA temp3
-
-    CollideDown3Loop:
-    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
-    LDA entities+Entity::xpos, X 
-    LSR 
-    LSR 
-    LSR 
-    LSR ; divide by 16
-    ; AND #%00011111 ; mask bits over 16
-    STA temp
-
-    ; Do the same for Y pos 
-    LDA entities+Entity::ypos, X 
-    CLC 
-    ADC #$07
-    LSR 
-    LSR 
-    LSR 
-    LSR ; we now have the y pos on the grid 
-    ; Index into 2d array: (y * width) + X 
-    ; Width = 16, so asl 4 times, add X to get index into array 
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    STA temp2 ; store the y portion
-
-    CLC 
-    ADC temp ; add the x portion
-    TAY 
-    LDA CollisionMap, Y ; load the meta tile id
-    ASL 
-    TAY  
-    LDA MetaTileList, Y 
-    STA jumppointer
-    LDA MetaTileList+1, Y 
-    STA jumppointer+1
-    ; LDY #$04
-    ; LDA (jumppointer), Y 
-    ; RTS
-
-    ; ; work out the tile of the metatile the point we're checking is in 
-    LDY #$04 
-    LDA temp
-    ASL 
-    ASL 
-    ASL 
-    ASL ; X16 to return it to world scale 
-    STA temp 
-    LDA entities+Entity::xpos, X 
-    SEC 
-    SBC temp ; get difference between two 
-    CMP #$09
-    BCC :+
-    INY
-    :
-    LDA temp2
-    SEC 
-    SBC entities+Entity::ypos, X 
-    CMP #$09 
-    BCC :+
-    INY 
-    INY
-    :
-    LDA (jumppointer), Y
-    STA rectangle1
-
-
-
-    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
-    LDA entities+Entity::xpos, X 
-    CLC 
-    ADC #$06 ; move 1 pixel in fromthe centre 
-    LSR 
-    LSR 
-    LSR 
-    LSR ; divide by 16
-    ; AND #%00011111 ; mask bits over 16
-    STA temp
-
-    ; Do the same for Y pos 
-    LDA entities+Entity::ypos, X 
-    CLC 
-    ADC #$07
-    LSR 
-    LSR 
-    LSR 
-    LSR ; we now have the y pos on the grid 
-    ; Index into 2d array: (y * width) + X 
-    ; Width = 16, so asl 4 times, add X to get index into array 
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    STA temp2 ; store the y portion
-
-    CLC 
-    ADC temp ; add the x portion
-    TAY 
-    LDA CollisionMap, Y ; load the meta tile id
-    ASL 
-    TAY  
-    LDA MetaTileList, Y 
-    STA jumppointer
-    LDA MetaTileList+1, Y 
-    STA jumppointer+1
-    LDY #$04
-    LDA (jumppointer), Y 
-
-    ; work out the tile of the metatile the point we're checking is in 
-    LDY #$04 
-    LDA temp
-    ASL 
-    ASL 
-    ASL 
-    ASL ; X16 to return it to world scale 
-    STA temp 
-    LDA entities+Entity::xpos, X 
-    SEC 
-    SBC temp ; get difference between two 
-    CMP #$09
-    BCC :+
-    INY
-    :
-    LDA temp2
-    SEC 
-    SBC entities+Entity::ypos, X
-    CMP #$09
-    BCC :+
-    INY
-    INY
-    :
-    LDA (jumppointer), Y
-    ORA rectangle1
-
-    RTS 
-
-CollideDown:
-    LDA entities+Entity::xpos, X
-    CLC 
-    ADC #$01 ; get the centre of the sprite(ish)
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-    ; AND #%00011111 ; mask any bits over 16 
-    STA temp
-
-    LDA entities+Entity::ypos, X
-    CLC 
-    ADC #$07
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-    ; AND #%00011111 
-
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    CLC 
-    ADC temp
-    TAY 
-    LDA CollisionMap, Y 
-    STA temp2
-
-    LDA entities+Entity::xpos, X
-    CLC 
-    ADC #$07 ; get the centre of the sprite(ish)
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-    STA temp
-
-    LDA entities+Entity::ypos, X
-    CLC 
-    ADC #$08
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    CLC 
-    ADC temp
-    TAY 
-    LDA CollisionMap, Y 
-    ORA temp2
-    RTS
-
 CollideUp2:
     CollideUp2Loop:
     ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
@@ -6813,208 +6371,6 @@ CollideUp2:
     ;     INC entities+Entity::ypos, X 
     ;     JMP CollideUp2Loop
     ; :
-    RTS 
-
-CollideUp3:
-    LDA #$00
-    STA temp3
-    CollideUp3Loop:
-    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
-    LDA entities+Entity::xpos, X  
-    LSR 
-    LSR 
-    LSR 
-    LSR ; divide by 16
-    ; AND #%00011111 ; mask bits over 16
-    STA temp
-
-    ; Do the same for Y pos 
-    LDA entities+Entity::ypos, X
-    LSR 
-    LSR 
-    LSR 
-    LSR ; we now have the y pos on the grid 
-    ; Index into 2d array: (y * width) + X 
-    ; Width = 16, so asl 4 times, add X to get index into array 
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    STA temp2 ; store the y portion
-
-    CLC 
-    ADC temp ; add the x portion
-    TAY 
-    LDA CollisionMap, Y ; load the meta tile id
-    ASL 
-    TAY  
-    LDA MetaTileList, Y 
-    STA jumppointer
-    LDA MetaTileList+1, Y 
-    STA jumppointer+1
-    ; LDY #$04
-    ; LDA (jumppointer), Y 
-    ; RTS
-
-    ; ; work out the tile of the metatile the point we're checking is in 
-    LDY #$04 
-    LDA temp
-    ASL 
-    ASL 
-    ASL 
-    ASL ; X16 to return it to world scale 
-    STA temp  
-    LDA entities+Entity::xpos, X 
-    SEC 
-    SBC temp ; get difference between two 
-    CMP #$09
-    BCC :+
-    INY
-    :
-    LDA temp2  
-    SEC 
-    SBC entities+Entity::ypos, X 
-    CMP #$09 
-    BCC :+
-    INY
-    INY 
-    :
-    LDA (jumppointer), Y
-    STA rectangle1
-
-    ; Get x position and divide it by 16 X/256 -> X/16. It now corresponds to the 16x15 collision array
-    LDA entities+Entity::xpos, X 
-    CLC 
-    ADC #$07 ; move 1 pixel in fromthe centre 
-    LSR 
-    LSR 
-    LSR 
-    LSR ; divide by 16
-    ; AND #%00011111 ; mask bits over 16
-    STA temp
-
-    ; Do the same for Y pos 
-    LDA entities+Entity::ypos, X  
-    LSR 
-    LSR 
-    LSR 
-    LSR ; we now have the y pos on the grid 
-    ; Index into 2d array: (y * width) + X 
-    ; Width = 16, so asl 4 times, add X to get index into array 
-    ASL 
-    ASL 
-    ASL 
-    ASL 
-
-    STA temp2 ; store the y portion
-
-    CLC 
-    ADC temp ; add the x portion
-    TAY 
-    LDA CollisionMap, Y ; load the meta tile id
-    ASL 
-    TAY  
-    LDA MetaTileList, Y 
-    STA jumppointer
-    LDA MetaTileList+1, Y 
-    STA jumppointer+1
-    ; LDY #$04
-    ; LDA (jumppointer), Y 
-    ; RTS
-
-    ; ; work out the tile of the metatile the point we're checking is in 
-    LDY #$04 
-    LDA temp
-    ASL 
-    ASL 
-    ASL 
-    ASL ; X16 to return it to world scale 
-    STA temp
-    LDA entities+Entity::xpos, X  
-    SEC 
-    SBC temp ; get difference between two 
-    CMP #$09
-    BCS :+
-    INY
-    :
-    LDA temp2 
-    SEC 
-    SBC entities+Entity::ypos, X 
-    CMP #$09 
-    BCC :+
-    INY 
-    INY 
-    :
-    LDA (jumppointer), Y
-    ORA rectangle1
-    
-    ; BEQ :+ 
-    ;     STA temp3 
-    ;     INC entities+Entity::ypos, X 
-    ;     JMP CollideUp3Loop
-    ; :
-    ; LDA temp3
-RTS 
-
-
-
-CollideUp:
-    LDA entities+Entity::xpos, X
-    CLC 
-    ADC #$01 ; get the centre of the sprite(ish)
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-    STA temp
-
-    LDA entities+Entity::ypos, X
-    SEC 
-    SBC #$01 
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL
-    ASL
-    ASL 
-
-    CLC 
-    ADC temp 
-    TAY 
-    LDA CollisionMap, Y 
-    STA temp2 
-
-    LDA entities+Entity::xpos, X
-    CLC 
-    ADC #$07 ; get the centre of the sprite(ish)
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-    STA temp
-
-    LDA entities+Entity::ypos, X
-    SEC 
-    SBC #$01 
-    LSR 
-    LSR 
-    LSR 
-    LSR 
-
-    ASL 
-    ASL
-    ASL
-    ASL 
-
-    CLC 
-    ADC temp 
-    TAY 
-    LDA CollisionMap, Y 
-    ORA temp2
     RTS 
 
 SpriteCollide: 
@@ -8169,81 +7525,81 @@ Rotator1:
     .byte $C0,$C1
     .byte $D0,$D1
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator2:
     .byte $C2,$C3
     .byte $D2,$D3
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator3:
     .byte $C4,$C5
     .byte $D4,$D5
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator4:
     .byte $C6,$C7
     .byte $D6,$D7
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator5:
     .byte $C8,$C9
     .byte $D8,$D9
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator6:
     .byte $CA,$CB
     .byte $DA,$DB
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator7:
     .byte $CC,$CD
     .byte $DC,$DD
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator8:
     .byte $CE,$CF
     .byte $DE,$DF
     .byte $00,$00
-    .byte $00,$00
+    .byte $02,$02
 Rotator9:
     .byte $E0,$E1
     .byte $F0,$F1
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator10:
     .byte $E2,$E3
     .byte $F2,$F3
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator11:
     .byte $E4,$E5
     .byte $F4,$F5
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator12:
     .byte $E6,$E7
     .byte $F6,$F7
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator13:
     .byte $E8,$E9
     .byte $F8,$F9
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator14:
     .byte $EA,$EB
     .byte $FA,$FB
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator15:
     .byte $EC,$ED
     .byte $FC,$FD
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 Rotator16:
     .byte $EE,$EF
     .byte $FE,$FF
-    .byte $00,$00
+    .byte $01,$01
     .byte $00,$00
 RotatorCuff1:
     .byte $C8,$07
@@ -8513,13 +7869,13 @@ WindowCornerBR2:
 PlatformWithPillar:
     .byte $22,$23
     .byte $2E,$2F
-    .byte $00,$00
+    .byte $04,$04
     .byte $00,$00
 PlatformWithPillar2:
     .byte $2E,$2F
     .byte $22,$23
     .byte $00,$00
-    .byte $00,$00
+    .byte $04,$04
 Diamond2:
     .byte $00,$01
     .byte $10,$11
@@ -8710,7 +8066,7 @@ ScreenTower:
     .byte $43,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24
     .byte $44,$45,$1A,$1A,$46,$4b,$16,$1A,$1A,$17,$4B,$3A,$4C,$37,$4D,$3F
     .byte $43,$1C,$42,$42,$1D,$4b,$1C,$00,$00,$1D,$4B,$38,$37,$3C,$3b,$3E
-    .byte $44,$47,$1B,$1B,$48,$4b,$1C,$00,$00,$1D,$4B,$2C,$32,$32,$32,$24
+    .byte $44,$47,$1B,$1B,$48,$4b,$1C,$00,$00,$1D,$4B,$2C,$31,$31,$31,$24
     .byte $08,$09,$0A,$0B,$2C,$1f,$18,$1B,$1B,$19,$1F,$2E,$04,$05,$06,$07
     .byte $10,$11,$12,$13,$2D,$4D,$49,$4B,$4B,$2C,$1F,$2C,$0C,$0D,$0E,$0F
     .byte $14,$33,$35,$3A,$1F,$4E,$2C,$3D,$3B,$49,$50,$1F,$33,$3B,$3C,$15
@@ -9484,11 +8840,11 @@ HeadbonkStrength:
 SpawnerSpeedRamp:
     .byte $01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$FF
 
-.include "famistudio_ca65.s"
-.include "testsong.s"
+; .include "famistudio_ca65.s"
+; .include "testsong.s"
 
 
-.segment "SONG1"
+; .segment "SONG1"
 ; 
 ; .segment "DPCM"
 

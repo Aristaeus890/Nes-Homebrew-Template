@@ -1,6 +1,28 @@
 
 
 ; Constants
+    PPUControl = $2000 
+    PPUMask= $2001 
+    PPUStatus = $2002
+    OAMAddress =$2003
+    OAMData = $2004
+    PPUScroll = $2005
+    PPUAddress = $2006 
+    PPUData = $2007 
+    OAMDMA = $4014
+
+    IRQLATCH = $C000
+    IRQRELOAD = $C001
+    IRQDISABLE = $E000
+    IRQENABLE = $E001
+
+    BANKSELECT = $8000
+    BANKDATA = $8001
+    MIRRORING = $A000
+    PRGRAMPROTECT = $A001
+
+
+
 PROJECTILECOOLDOWN = 30
 PROJECTILEMAX = 2
 FRICTION = 10
@@ -24,6 +46,27 @@ CLOUDSBANK6=29
 CLOUDSBANK7=30
 CLOUDSBANK8=31
 
+SNOWBANK1 = 32
+SNOWBANK2 = 33
+SNOWBANK3 = 34
+SNOWBANK4 = 35
+
+SNOWBANK5 = 36
+SNOWBANK6 = 37
+SNOWBANK7 = 38
+SNOWBANK8 = 39
+
+MINSNOWBANK = 35
+MAXSNOWBANK = 39
+
+MAXPARTICLES = 40
+PARTICLESPEEDMAXVX = 3
+PARTICLESPEEDMAXVY = 3
+PARTICLESPEEDMINVX = 254
+PARTICLESPEEDMINVY = 254
+PARTICLESFRICTION = 02
+
+MAXEMITTERS = 5
 
 .scope EntityType ; NB this should match the order in the process entity list in order for the jump table to hit the right address
     NoEntity = 0
@@ -62,6 +105,10 @@ CLOUDSBANK8=31
     VerticalLaser = 33
     Crystal = 34
     OptionsScreenSelector = 35
+.endscope
+
+.scope ParticleFlags 
+    AffectedByWind = 1
 .endscope
 
 .scope GState

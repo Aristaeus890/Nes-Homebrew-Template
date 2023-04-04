@@ -1,5 +1,3 @@
-; This is a template for a basic NES rom
-; it uses ines 1.0, not 2.0
 
 .include "constants.asm" 
 
@@ -8,7 +6,7 @@
 .byte "NES" ;0-2 
 .byte $1a ;3
 .byte $02 ; 2 * 16KB PRG ROM - least sig byte
-.byte $05 ; 5 * 8KB CHR ROM  - lsb
+.byte $06 ; 5 * 8KB CHR ROM  - lsb
 .byte %01000001 ; mapper and mirroring
 .byte %00001000 ; console type 
 .byte $00
@@ -84,36 +82,17 @@
     temp: .res 1
     temp2: .res 1
     temp3: .res 1
-    rng: .res 1 ; rng is stored here once a frame
     rectangle1: .res 4 
     rectangle2: .res 4
     DrawFlags: .res 1 ;
     animateflags: .res 1 
     AttributesAddressHigh: .res 1
     AttributesAddressLow: .res 1
+    UpperScrollX: .res 1
 
-    PPUControl = $2000 
-    PPUMask= $2001 
-    PPUStatus = $2002
-    OAMAddress =$2003
-    OAMData = $2004
-    PPUScroll = $2005
-    PPUAddress = $2006 
-    PPUData = $2007 
-    OAMDMA = $4014
-
-    IRQLATCH = $C000
-    IRQRELOAD = $C001
-    IRQDISABLE = $E000
-    IRQENABLE = $E001
-
-    BANKSELECT = $8000
-    BANKDATA = $8001
-    MIRRORING = $A000
-    PRGRAMPROTECT = $A001
 
 .segment "OAM"
-SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
+    SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
 
 .segment "RAM"
     CollisionMap: .res 240
@@ -180,7 +159,41 @@ SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
     NMIEnableLevelEffects: .res 1
     CurrentCloudBank: .res 1
     CloudbankTimer: .res 1
-    
+    ParticlesRngIndex: .res 1
+    ParticlesType: .res MAXPARTICLES
+    ParticlesX: .res MAXPARTICLES
+    ParticlesY: .res MAXPARTICLES
+    ParticlesSpriteNo: .res MAXPARTICLES
+    ParticlesAttributes: .res MAXPARTICLES
+    ParticlesSubX: .res MAXPARTICLES
+    ParticlesSubY: .res MAXPARTICLES
+    ParticlesVX: .res MAXPARTICLES
+    ParticlesVY: .res MAXPARTICLES
+    ParticlesVXLow: .res MAXPARTICLES
+    ParticlesVYLow: .res MAXPARTICLES
+    ParticlesTimer1: .res MAXPARTICLES
+    ParticlesSign: .res MAXPARTICLES
+    WindSign: .res 1
+    ParticlesWindStrengthXHigh: .res 1
+    ParticlesWindStrengthXLow: .res 1
+    ParticlesWindStrengthYHigh: .res 1
+    ParticlesWindStrengthYLow: .res 1
+    WindState: .res 1
+    WindTimerHigh: .RES 1
+    WindTimerLow: .res 1
+    ParticlesCount: .res 1
+
+    EmitterType: .res MAXEMITTERS
+    EmitterX: .res MAXEMITTERS
+    EmitterY: .res MAXEMITTERS
+    EmitterWidth: .res MAXEMITTERS
+    EmitterHeight: .res MAXEMITTERS
+    EmitterParticleNumber: .res MAXEMITTERS
+
+    ParticlesGravity: .res 1
+
+    rng: .res 8
+    rngindex: .res 1
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
         SEI ; Disables all interrupts
@@ -314,12 +327,15 @@ LDA #>ScreenTower
 STA world+1
 JSR LoadCollisionData
 
+
 BIT PPUControl
 LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
 STA PPUAddress
 LDA #$00
 STA PPUAddress
 
+LDA #$01
+sta MIRRORING 
 
 JSR InitGameHat
 
@@ -334,6 +350,9 @@ JSR InitGameHat
 LDA #$02
 STA playerflags
 
+:
+BIT PPUStatus
+BPL :-
 
 ; Enable Rendering
 LDA #%10010000
@@ -361,6 +380,7 @@ Loop:
     ; LDA #%00011111
     ; STA PPUMask
     JSR OAMBuffer   ; Sprite data is written to the buffer here
+    JSR OAMBufferParticles
     ; LDA #%00011110
     ; STA PPUMask
     ; JSR famistudio_update
@@ -380,7 +400,7 @@ IsVBlankDone:
 
 
 ; Main loop that exectutes when the NMI interrupts. Here is where we want to do our drawing. All drawing must be done before the beam resets
-MAINLOOP: 
+NMI: 
     ; load the current registers onto the stack. This doesn't matter if we finish our logic before the nmi is called, 
     ;but if it is, we need to preserve the registers so that we can carry on where we left off 
     PHA ; 2
@@ -417,10 +437,10 @@ MAINLOOP:
         JMP (jumppointer)    
     :
     NMILevelUpdateReturnPoint:
-    ; LDA #$BF ;2
-    ; STA IRQLATCH ;4
-    ; STA IRQRELOAD ;4
-    ; STA IRQENABLE ;4
+    LDA #$10 ;2
+    STA IRQLATCH ;4
+    STA IRQRELOAD ;4
+    STA IRQENABLE ;4
 
     ; read sprites
     LDA #$00
@@ -429,8 +449,9 @@ MAINLOOP:
     STA OAMDMA
 
     BIT PPUStatus;4
-    LDA #$00;2
+    LDA UpperScrollX
     STA PPUScroll;4
+    LDA #$00
     STA PPUScroll;4
 
     INC nmidone;5
@@ -446,24 +467,6 @@ MAINLOOP:
     
     RTI ;6
 
-NMIDrawCommands:
-    .word NMINoCommand ; 0 
-    .word NMIClearVerticalColumn1
-    .word NMIClearVerticalColumn2
-    .word NMIWriteVertTiles1 ; 3
-    .word NMISwapPallette ; 4
-    .word NMIClearVictoryScreen ;5
-    .word NMIDrawVictoryScreen ; 6
-    .word NMIDrawVictoryPlayer ; 7
-    .word NMIDrawVictoryPlayer ; 8
-    .word NMIDrawOptionsScreen ;9
-    .word NMIUpdateAnimatedTilesOptions ;a
-
-NMIAnimateCommands:
-    .word NMIUpdateRampart
-    .word NMIUpdateTower 
-    .word NMIUpdateGarden
-    .word NMIUpdateRest
 
 NMISwapPallette:
 
@@ -1015,13 +1018,13 @@ JMP NMIDrawCommandReturnPoint
 
 
 IRQ:
-    ; PHA 
-    ; BIT PPUStatus
-    ; LDA #$00
-    ; STA PPUScroll
-    ; STA PPUScroll
-    ; STA IRQDISABLE
-    ; PLA 
+    PHA 
+    BIT PPUStatus
+    LDA #$00
+    STA PPUScroll
+    STA PPUScroll
+    STA IRQDISABLE
+    PLA 
 RTI
 
 ;;;;;;;;;;;;;;;;;;;;
@@ -1188,23 +1191,6 @@ LDA #EntityType::Player
 JSR SpawnEntity
 LDX #$50
 LDY #$10
-; LDA #EntityType::ProjectileSpell
-; jsr SpawnEntity
-
-; LDX #$a0
-; LDY #$10
-; LDA #EntityType::Crystal
-; JSR SpawnEntity
-
-; LDX #$10
-; LDY #$40
-; LDA #EntityType::VerticalLaser
-; JSR SpawnEntity
-
-; LDX #$80
-; LDY #$a0
-; LDA #EntityType::LightningEmitter
-; jsr SpawnEntity
 
 
 LDX #$10
@@ -1248,6 +1234,10 @@ LDY #$28
 LDA #EntityType::Scoretextp4
 jsr SpawnEntity
 
+
+
+
+
 LDA #$00
 STA ScoreP1
 STA ScoreP2
@@ -1269,84 +1259,9 @@ STA WeaponTypeP3
 ADC #$01
 STA WeaponTypeP4
 
-LDA #$03
-STA DrawFlags
 LDA #$04
 STA GameState
 
-LDA #$23
-STA ConveyorBeltAddress1
-LDA #$44
-STA ConveyorBeltAddress1+1
-
-LDA #$23
-STA ConveyorBeltAddress2
-LDA #$54
-STA ConveyorBeltAddress2+1
-
-LDA #$22
-STA WaterfallAddress1
-LDA #$D2
-STA WaterfallAddress1+1
-
-LDA #$22
-STA WaterfallAddress2
-LDA #$D3
-STA WaterfallAddress2+1
-
-
-LDA #$22
-STA WaterfallAddress3
-LDA #$CC
-STA WaterfallAddress3+1
-LDA #$22
-STA WaterfallAddress4
-LDA #$CD
-STA WaterfallAddress4+1
-
-LDA #$AC 
-STA WaterfallBuffer1
-LDA #$BC 
-STA WaterfallBuffer1+1
-LDA #$CC 
-STA WaterfallBuffer1+2
-LDA #$DC 
-STA WaterfallBuffer1+3
-LDA #$AE 
-STA WaterfallBuffer1+4
-LDA #$BE 
-STA WaterfallBuffer1+5
-LDA #$CE 
-STA WaterfallBuffer1+6
-LDA #$DE 
-STA WaterfallBuffer1+7
-
-LDA #$AD 
-STA WaterfallBuffer2
-LDA #$BD 
-STA WaterfallBuffer2+1
-LDA #$CD 
-STA WaterfallBuffer2+2
-LDA #$DD 
-STA WaterfallBuffer2+3
-LDA #$AF 
-STA WaterfallBuffer2+4
-LDA #$BF 
-STA WaterfallBuffer2+5
-LDA #$CF 
-STA WaterfallBuffer2+6
-LDA #$DF 
-STA WaterfallBuffer2+7
-
-
-LDA #$E0
-LDX #$00
-:
-STA ConveyorBeltBuffer1, x
-sta ConveyorBeltBuffer2, x
-INX
-CPX #$08
-BNE :-
 
 LDA #$20
 STA CurrentColumnHigh
@@ -1366,10 +1281,16 @@ STA GameTimerAddress+1
 JSR SwapLeftBankToGame
 JSR SwapRightBankToTower
 
-LDA #$01
+LDA #$03
 STA CurrentMap
 JSR PrepareLevelData
+LDA CurrentMap
+JSR InitMap
 JSR LoadPalletteToRam
+
+LDA #$03
+STA DrawFlags
+
 
 RTS
 
@@ -1414,13 +1335,117 @@ InitMap:
 RTS 
 
 InitMapRampart:
+    LDA #$23
+    STA ConveyorBeltAddress1
+    LDA #$44
+    STA ConveyorBeltAddress1+1
+
+    LDA #$23
+    STA ConveyorBeltAddress2
+    LDA #$54
+    STA ConveyorBeltAddress2+1
+
+    LDA #$22
+    STA WaterfallAddress1
+    LDA #$D2
+    STA WaterfallAddress1+1
+
+    LDA #$22
+    STA WaterfallAddress2
+    LDA #$D3
+    STA WaterfallAddress2+1
+
+
+    LDA #$22
+    STA WaterfallAddress3
+    LDA #$CC
+    STA WaterfallAddress3+1
+    LDA #$22
+    STA WaterfallAddress4
+    LDA #$CD
+    STA WaterfallAddress4+1
+
+    LDA #$AC 
+    STA WaterfallBuffer1
+    LDA #$BC 
+    STA WaterfallBuffer1+1
+    LDA #$CC 
+    STA WaterfallBuffer1+2
+    LDA #$DC 
+    STA WaterfallBuffer1+3
+    LDA #$AE 
+    STA WaterfallBuffer1+4
+    LDA #$BE 
+    STA WaterfallBuffer1+5
+    LDA #$CE 
+    STA WaterfallBuffer1+6
+    LDA #$DE 
+    STA WaterfallBuffer1+7
+
+    LDA #$AD 
+    STA WaterfallBuffer2
+    LDA #$BD 
+    STA WaterfallBuffer2+1
+    LDA #$CD 
+    STA WaterfallBuffer2+2
+    LDA #$DD 
+    STA WaterfallBuffer2+3
+    LDA #$AF 
+    STA WaterfallBuffer2+4
+    LDA #$BF 
+    STA WaterfallBuffer2+5
+    LDA #$CF 
+    STA WaterfallBuffer2+6
+    LDA #$DF 
+    STA WaterfallBuffer2+7
+
+
+    LDA #$E0
+    LDX #$00
+    :
+    STA ConveyorBeltBuffer1, x
+    sta ConveyorBeltBuffer2, x
+    INX
+    CPX #$08
+    BNE :-
 RTS
 
 InitMapGarden:
 RTS
 
 InitMapRest:
+    ldx #%00000010
+    lda #SNOWBANK1
+    STX BANKSELECT
+    STA BANKDATA
+    ldx #%00000011
+    lda #SNOWBANK2
+    STX BANKSELECT
+    STA BANKDATA
+    ldx #%00000100
+    lda #SNOWBANK3
+    STX BANKSELECT
+    STA BANKDATA
+    ldx #%00000101
+    lda #SNOWBANK4
+    STX BANKSELECT
+    STA BANKDATA
 
+    LDA #$02
+    STA temp
+    LDA #$10
+    STA temp2
+    STA temp3
+    LDX #$80
+    LDY #$B0
+    JSR SpawnEmitter
+
+
+
+
+
+    LDA #$00
+    STA NMIEnableLevelEffects
 RTS
 
 InitMapTower:
@@ -1471,6 +1496,7 @@ MapRampartLogic:
     RTS 
 
 MapTowerLogic:
+
     ldA #$01
     BIT framecount
     bne :++
@@ -1484,12 +1510,6 @@ MapTowerLogic:
     sta CurrentTowerRotation
     JSR SetTowerRotatorBank
     :
-
-    ; LDA #$01
-    ; BIT framecount
-    ; BEQ :+
-    ; JMP NoCloudUpdate
-    ; :
 
     LDX WindowIndex
 
@@ -1582,7 +1602,44 @@ MapGardenLogic:
 
 
 MapRestLogic:
-    rts
+    LDX #MAXPARTICLES-1
+    LDA ParticlesType, X
+    BNE :++
+    JSR Prng
+    TAX
+    :
+    JSR Prng
+    CMP #$78
+    BCC :-
+    CMP #$C0 
+    BCS :-
+
+    TAY
+    LDA #$02
+    STA temp
+    JSR SpawnParticles
+    :
+
+
+    JSR ProcessWind
+
+    LDA #%00000010
+    BIT framecount
+    BEQ :+
+        RTS
+    :
+    LDA CurrentTowerRotation
+    CLC 
+    ADC #$01
+    CMP #MAXSNOWBANK
+    BNE :+
+    LDA #MINSNOWBANK
+    :
+    STA CurrentTowerRotation
+    ; JSR SetTowerRotatorBank
+
+
+RTS
 
 MapSpecificLogicTree:
     .word MapRampartLogic
@@ -1592,14 +1649,16 @@ MapSpecificLogicTree:
 
 DoGameLogic:
 
+    INC UpperScrollX
     JSR ProcessSpawnStack
     JSR ReadButtons
     JSR DecrementTimers
     JSR ProcessEntities
+    JSR ProcessParticles
     ; JSR UpdateConveyorBelts
     ; JSR UpdateWaterfalls
-    JSR ProcessDestructionStack
-    JSR ProcessPlayerSpawnStack
+    ; JSR ProcessDestructionStack
+    ; JSR ProcessPlayerSpawnStack
     JSR DoMapSpecificLogic
     JSR CheckForGameEnd
     RTS 
@@ -2324,6 +2383,231 @@ EntityMinusSubY:
     STA entities+Entity::ypos, X
 RTS
 
+;xpos in x 
+;ypos in y 
+;type in temp
+;width in temp2 
+;height in temp3
+SpawnEmitter:
+    TYA 
+    PHA 
+    TXA 
+    PHA
+    LDX #$00
+    SpawnEmitterLoop:
+        CPX #MAXEMITTERS
+        BEQ EndEmitterSpawn
+        LDA EmitterType, X 
+        BEQ :+
+        INX 
+        JMP SpawnEmitterLoop
+        :
+        PLA
+        STA EmitterX, X 
+        PLA 
+        STA EmitterY, X
+        LDA temp
+        STA EmitterType, X 
+        LDA temp2
+        STA EmitterWidth, X
+        LDA temp3
+        STA EmitterHeight, X
+        RTS 
+    EndEmitterSpawn:
+    PLA 
+    PLA
+RTS
+
+ProcessEmitters:
+    LDY #$00
+    LDX #$00
+    ProcessEmitterLoop:
+    jmp NextEmitter
+    LDA ParticlesType, X 
+    BEQ NextEmitter
+
+    ASL 
+    TAY 
+    LDA EmitterStates, Y 
+    STA jumppointer
+    LDA EmitterStates+1, Y 
+    STA jumppointer+1
+    JMP (jumppointer)
+    
+    NextEmitter:
+    INX
+    CPX #MAXEMITTERS
+    BEQ :+
+    JMP ProcessEmitterLoop
+    :
+RTS
+
+;x = xpos
+; y = ypos
+; temp = type
+SpawnParticles:
+    TYA 
+    PHA 
+    TXA 
+    PHA
+    LDX #$00
+    ; LDA ParticlesCount
+    ; CMP #MAXPARTICLES
+    ; BEQ
+    SpawnParticleLoop:
+        CPX #MAXPARTICLES
+        BEQ EndParticleSpawn
+        LDA ParticlesType, X 
+        BEQ :+
+        INX 
+        JMP SpawnParticleLoop
+        :
+        PLA
+        STA ParticlesX, X 
+        PLA 
+        STA ParticlesY, X
+        LDA #$00
+        STA ParticlesSubX, X
+        STA ParticlesSubY, X
+        STA ParticlesVX, X 
+        LDA #$01
+        STA ParticlesVY, X
+        lda #$00
+        STA ParticlesVXLow, X 
+        sta ParticlesVYLow, X
+        LDA #%00000010
+        STA ParticlesAttributes, X
+        LDA #$00
+        sta ParticlesTimer1, X
+        LDA #%00000011
+        STA ParticlesSign, X
+        ; lda #$bd
+        LDA rng 
+        and #%00000001
+        ADC #$bd
+        STA ParticlesSpriteNo, x
+        LDA temp
+        STA ParticlesType, X 
+        RTS 
+    EndParticleSpawn:
+    PLA 
+    PLA
+RTS
+
+ProcessParticles:
+    LDA #%00011111
+    STA PPUMask
+    LDY #$00
+    LDX #$00
+    ProcessParticlesLoop:
+    LDA ParticlesType, X 
+    BEQ NextParticle
+
+    ASL 
+    TAY 
+    LDA ParticleStates, Y 
+    STA jumppointer
+    LDA ParticleStates+1, Y 
+    STA jumppointer+1
+    JMP (jumppointer)
+    
+    NextParticle:
+    INX
+    CPX #MAXPARTICLES
+    BEQ :+
+    JMP ProcessParticlesLoop
+    :
+
+    LDA #%00011110
+    STA PPUMask
+
+RTS
+
+ProcessWind:
+    LDA WindState
+    ASL 
+    TAY 
+    LDA WindStateMachine, Y 
+    STA jumppointer
+    LDA WindStateMachine+1, Y 
+    STA jumppointer+1
+    JSR JumpToPointerRoutine
+RTS
+
+WindInactive:
+    RTS 
+
+WindWaiting:
+    ; LDA #$80
+    ; STA ParticlesWindStrengthXLow
+    DEC WindTimerLow
+    BEQ :+
+    RTS 
+    :
+    LDA #$02
+    STA WindState
+    LDA #$FF
+    STA WindTimerLow
+    JSR Prng
+    AND #%00000001
+    CMP #$01
+    BEQ :+
+    LDA #$00
+    :
+    STA WindSign
+RTS
+
+WindIncreasing:
+    LDA ParticlesWindStrengthXLow
+    CLC 
+    ADC #$01
+    STA ParticlesWindStrengthXLow
+    LDA ParticlesWindStrengthXHigh
+    ADC #$00
+    STA ParticlesWindStrengthXHigh
+
+    DEC WindTimerLow
+    BNE :+
+    LDA #$03
+    STA WindState
+    LDA #$FF
+    STA WindTimerLow
+    AND #$00000001
+    STA WindTimerHigh
+    :
+RTS 
+
+WindDecreasing:
+    LDA ParticlesWindStrengthXLow
+    SEC 
+    SBC #$01 
+    STA ParticlesWindStrengthXLow
+    LDA ParticlesWindStrengthXHigh
+    SBC #$00
+    STA ParticlesWindStrengthXHigh
+
+    LDA ParticlesWindStrengthXLow
+    BEQ :+
+    RTS 
+    :
+    LDA ParticlesWindStrengthXHigh
+    BEQ :+
+    RTS 
+    :
+    LDA #$FF 
+    STA WindTimerLow
+    LDA #$01 
+    STA WindState
+RTS
+
+WindBlowing:
+    DEC WindTimerLow
+    BNE :+
+    LDA #$04
+    STA WindState
+    :
+RTS
+
 ProcessEntities:
     LDX #$00
     ProcessEntitiesLoop:
@@ -2379,7 +2663,7 @@ ProcessEntities:
     :
 RTS
 
-.align 256
+; .align 256
 StateMachineList:
     .word PlayerStateMachine ; dummy
     .word PlayerStateMachine
@@ -2602,6 +2886,7 @@ OptionsScreenSelectorStateMachine:
     .word OptionScreenSelectorInit
     .word OptionScreenSelectorProcess
 
+;;;;;
 
 PlayerInit:
     LDA #%00000000
@@ -3119,19 +3404,6 @@ AdvancePlayerAnimation:
     INC animationtracktimer
 RTS 
 
-PlayerAddSpeedList:
-    .word DummyEntry
-    .word AddSpeedP1
-    .word AddSpeedP2
-    .word AddSpeedP3
-    .word AddSpeedP4
-
-PlayerSubSpeedList:
-    .word DummyEntry
-    .word SubSpeedP1
-    .word SubSpeedP2
-    .word SubSpeedP3
-    .word SubSpeedP4
 
 PlayerAddSpeed:
     LDA entities+Entity::type, X 
@@ -4590,6 +4862,142 @@ ClearEntity:
     STA entities+Entity::animationframe, X
     STA entities+Entity::animationtimer, X
     JMP EntityComplete
+
+EmitterProcessSnow:
+
+JMP NextEmitter
+
+EmitterProcessHovering:
+    LDA EmitterParticleNumber, X 
+    CMP #5
+    BNE :+
+    JMP NextEmitter 
+    :
+    INC EmitterParticleNumber, X
+    LDA #$02
+    STA temp
+    LDX #$10
+    LDY #$10
+    JSR SpawnParticles
+JMP NextEmitter
+
+ParticlesProcessWind:
+JMP NextParticle
+
+ParticlesProcessHoveringVertical:
+
+    LDY ParticlesTimer1, X 
+    LDA Sin, Y 
+    CLC 
+    ADC ParticlesY, X
+    STA ParticlesY, X
+    ; LDA Sin, y 
+    ; CLC 
+    ; adc ParticlesX, x 
+    ; sta ParticlesX,x
+
+    INY
+    CPY #68
+    BNE :+
+    LDY #$00
+    :
+    TYA
+    STA ParticlesTimer1, X 
+
+    LDA WindSign
+    BEQ :+
+    JSR Prng
+    AND #%00000001
+    CLC 
+    ADC ParticlesX, X 
+    STA ParticlesX, X
+    LDA ParticlesSubX, X 
+    CLC 
+    ADC ParticlesWindStrengthXLow
+    STA ParticlesSubX,X
+    LDA ParticlesX, X 
+    ADC ParticlesWindStrengthXHigh
+    STA ParticlesX, X 
+    JMP NextParticle
+    :
+    ; JSR Prng
+    ; AND #%00000001
+    ; SEC 
+    ; SBC ParticlesX, X 
+    ; STA ParticlesX, X
+    LDA ParticlesSubX, X 
+    SEC 
+    SBC ParticlesWindStrengthXLow
+    STA ParticlesSubX,X
+    LDA ParticlesX, X 
+    SBC ParticlesWindStrengthXHigh
+    STA ParticlesX, X 
+
+JMP NextParticle
+
+FlipParticleSignY:
+        LDA #%00000010
+        EOR ParticlesSign, X 
+RTS
+
+FlipParticleSignX:
+        LDA #%00000001
+        EOR ParticlesSign, X 
+RTS
+
+ParticlesProcessHoveringHorizontal:
+    INC ParticlesY, X
+JMP NextParticle
+
+ParticlesProcessHoveringBoth:
+    INC ParticlesY, X
+JMP NextParticle
+
+ParticlesApplyMovement:
+    ; APPLY FRICTION
+    ; LDA ParticlesVX, X
+    ; BMI :+
+    ; LDA ParticlesVXLow, X 
+    ; SEC 
+    ; SBC #PARTICLESFRICTION
+    ; STA ParticlesVXLow, X 
+    ; LDA ParticlesVX, X 
+    ; SBC #$00
+    ; STA ParticlesVX, X
+    ; :
+    ; CAP SPEED
+    ; LDA ParticlesVX, X 
+    ; CMP #PARTICLESPEEDMAXVX
+    ; BCC :+
+    ; LDA #PARTICLESPEEDMAXVX
+    ; STA ParticlesVX, X
+    ; :
+
+    ; APPLY VELOCITY
+
+    LDA ParticlesVYLow, X
+    BMI :+
+    LDA ParticlesSubY, X
+    CLC
+    ; ADC #$40
+    ADC ParticlesVYLow, x
+    STA ParticlesSubY, X 
+    LDA ParticlesY, X 
+    ADC #$00
+    STA ParticlesY, X 
+    JMP NextParticle
+    :
+    LDA ParticlesSubY, X
+    CLC 
+    ADC #128
+    SEC
+    SBC ParticlesVYLow, x
+    STA ParticlesSubY, X 
+    LDA ParticlesY, X 
+    SBC #$00
+    STA ParticlesY, X 
+
+JMP NextParticle
 
 ; finds the first entity of any type
 ; 
@@ -6454,9 +6862,6 @@ EndSpriteCollide:
     LDA #$FF
     RTS
 
-NMI:            ; this happens once a frame when the draw arm mabob is returning to the top of the screen
-    JMP MAINLOOP
-    RTI
 
 CollisionEffectTable:
     .word NoCollision ;0 
@@ -6579,6 +6984,20 @@ Prng:
 Setrng:
     JSR Prng
     STA rng
+    ROR
+    STA rng+1
+    ROR 
+    STA rng+2
+    ROR 
+    STA rng+3
+    ROR 
+    STA rng+4
+    ROR 
+    STA rng+5
+    ROR 
+    STA rng+7
+    ROR 
+    STA rng+8
     RTS
 
 ;;;
@@ -6653,7 +7072,7 @@ FillTileBuffer:
     INX
     CPX #32
     BNE :-
-    RTS
+RTS
 
 FillAttributeBuffer:
 
@@ -6661,6 +7080,38 @@ FillAttributeBuffer:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; OAM Buffer Handling ; All sprite data for the frame must be written into the OAM so that it can be sent to the PPU in vblank
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OAMBufferParticles:
+    LDX #$00
+    LDY spritebufferposition
+    Drawparticleloop:
+    CPY #$00 
+    BNE :+
+    RTS
+    :
+
+    LDA ParticlesType, X 
+    BEQ :+
+
+    LDA ParticlesY, X
+    STA SpriteBuffer, Y
+    INY 
+    LDA ParticlesSpriteNo, X
+    STA SpriteBuffer, Y 
+    INY
+    LDA ParticlesAttributes, X
+    STA SpriteBuffer, Y 
+    INY
+    LDA ParticlesX, X
+    STA SpriteBuffer, Y
+    INY 
+
+    :
+    INX 
+    CPX #MAXPARTICLES
+    BNE Drawparticleloop    
+
+RTS
 
 OAMBuffer:
     ; Clear all sprite data from last frame 
@@ -7286,98 +7737,9 @@ waterfall4:
     .byte $00,$00
     .byte $00,$00
 
-MetaTileList:
-    .word brick ;00
-    .word brick_hole ;01
-    .word brick_dark_left ;02
-    .word brick_dark_right ;03
-    .word brick_bright_left ;04
-    .word brick_bright_right ; 05
-    .word earth ;06
-    .word earth_top ;07
-    .word arch_tl ;08
-    .word arch_tr ;09
-    .word arch_bl ;0A
-    .word arch_br ;0B
-    .word moon_tl ;0C
-    .word moon_tr ;0D
-    .word moon_bl ;0E 
-    .word moon_br ;0F
-    .word crack_v ;10
-    .word crack_h ;11
-    .word crack ;12
-    .word brick_lip_l;13
-    .word brick_lip_r;14
-    .word brick_bulge_l;15
-    .word brick_bulge_r;16
-    .word water_l;17
-    .word water_r;18 
-    .word window_l;19
-    .word window_r;1A
-    .word bars_l;1B
-    .word bars_r;1C
-    .word floor ;1d
-    .word floor_no_collide ;1e
-    .word floor_l ;1f
-    .word floor_r ;20
-    .word floor_corner_l ;21
-    .word floor_corner_r ;22
-    .word floor_side_l ;23
-    .word floor_side_r ;24
-    .word floor_corner_bot_l ;25
-    .word floor_corner_bot_r ;26
-    .word floor_corner_bot_mid ;27
-    .word floor_corner_bot ;28
-    .word candles ;29
-    .word brazier ;2a
-    .word pal1 ;2b
-    .word pal2 ;2c
-    .word pal3 ;2d
-    .word pal4 ;2e
-    .word brick_divided ; 2f
-    .word floor_middle ; 30
-    .word floor_half ; 31
-    .word floor_half_reversed ;32
-    .word laseremitterbottom ;33
-    .word laseremittertop ;34
-    .word conveyorBelt1 ;35
-    .word conveyorBelt2 ;36
-    .word conveyorBelt3 ;37
-    .word conveyorBelt4 ;38
-    .word conveyorBelt5 ;39
-    .word conveyorbeltrl1 ;3A
-    .word conveyorbeltrl2 ;3B
-    .word conveyorbeltrl3 ;3C
-    .word conveyorbeltrl4 ;3D
-    .word conveyorbeltrl5 ;3E
-    .word jumpablefloor ;3f
-    .word jumpablefloorreversed ;40
-
-    .word waterfalltop ;41 
-    .word waterfall1 ;42
-    .word waterfall2 ; 43
-    .word waterfall3 ; 44
-    .word waterfall4 ; 45
-    .word earth_edge_l
-    .word earth_edge_r
 
 
-MetaTileListTitle:
-    .word titleblank
-    .word titlepressstart1
-    .word titlepressstart2
-    .word titlepressstart3
 
-    .word titleplayercount1
-    .word titleplayercount2
-    .word titleplayercount3
-
-    .word titlegamemode1
-    .word titlegamemode2
-
-    .word titlemap
-    .word titlepalette1
-    .word titlepalette2
 
 
 titleblank:
@@ -7417,88 +7779,6 @@ titlepalette2:
     .byte $DE,$DF
     .byte $ff,$ff
 
-MetaTileListTower:
-    .word TowerPal1 ;00
-    .word TowerPal2 ;01
-    .word TowerPal3 ;02
-    .word TowerPal4;03
-    .word Rotator1;04
-    .word Rotator2;05
-    .word Rotator3;06
-    .word Rotator4;07
-    .word Rotator5;08
-    .word Rotator6;09
-    .word Rotator7;0A
-    .word Rotator8;0B
-    .word Rotator9;0C
-    .word Rotator10;0D
-    .word Rotator11;0E
-    .word Rotator12;0F
-    .word Rotator13;10
-    .word Rotator14;11
-    .word Rotator15;12
-    .word Rotator16;13
-    .word RotatorCuff1;14
-    .word RotatorCuff2;15
-    .word Corner1 ;16
-    .word Corner2 ;17
-    .word Corner3 ;18
-    .word Corner4;19
-    .word WindowEdgeTop;1A
-    .word WindowEdgeBottom;1B
-    .word WindowEdgeLeft;1C
-    .word WindowEdgeRight;1D
-    .word Panel ;1E
-    .word PanelTiled;1F 
-    .word PanelLettered1;20
-    .word PanelLettered2;21
-    .word PanelLettered3;22
-    .word PanelLettered4;23
-    .word Brick1;24
-    .word Brick2;25
-    .word Brick3;26
-    .word Brick4;27
-    .word Brick5;28
-    .word Brick6;29
-    .word Brick7;2a
-    .word Brick8;2b
-    .word Pillar1;2c
-    .word Pillar2;2d
-    .word PillarHalf1;2e
-    .word PillarHalf2;2f
-    .word PlatformHalfReversed;30
-    .word PlatformHalf;31
-    .word PlatformFull;32;
-    .word Letters1;33
-    .word Letters2;34
-    .word Letters3;35
-    .word Letters4;36
-    .word Letters5;37
-    .word Letters6;38
-    .word Letters7;39
-    .word Letters8;3a
-    .word LettersVined1 ;3b
-    .word LettersVined2 ;3c
-    .word LettersVined3 ;3d
-    .word LettersVined4 ;3E
-    .word LettersVined5 ;3F
-    .word Diamond ;40
-    .word DiamondVined ;41
-    .word DiamondSmall;42
-    .word PillarVined ;43
-    .word PillarVined2;44
-    .word WindowCornerTL2 ;45
-    .word WindowCornerTR2;46
-    .word WindowCornerBL2;47
-    .word WindowCornerBR2;48
-    .word PlatformWithPillar;49
-    .word PlatformWithPillar2;4A
-    .word Diamond2;4B
-    .word PanelVined;4C
-    .word PanelVined2;4D
-    .word PanelTiled2;4e
-    .word PanelTiled3;4f
-    .word PanelTiled4;50
 
 TowerPal1:
     .byte $6F,$6F
@@ -7908,10 +8188,297 @@ PanelTiled4:
     .byte $00,$00
 
 
+
+SnowPal1:
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+SnowPal2:
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+SnowPal3:
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+Mountain1:
+    .byte $00,$01
+    .byte $10,$11
+    .byte $00,$00
+    .byte $00,$00
+Mountain2:
+    .byte $02,$03
+    .byte $12,$13
+    .byte $00,$00
+    .byte $00,$00
+Mountain3:
+    .byte $04,$05
+    .byte $14,$15
+    .byte $00,$00
+    .byte $00,$00
+Mountain4:
+    .byte $06,$07
+    .byte $16,$17
+    .byte $00,$00
+    .byte $00,$00
+Mountain5:
+    .byte $20,$21
+    .byte $30,$31
+    .byte $00,$00
+    .byte $00,$00
+Mountain6:
+    .byte $22,$23
+    .byte $32,$33
+    .byte $00,$00
+    .byte $00,$00
+Mountain7:
+    .byte $24,$25
+    .byte $34,$35
+    .byte $00,$00
+    .byte $00,$00
+Mountain8:
+    .byte $26,$27
+    .byte $36,$37
+    .byte $00,$00
+    .byte $00,$00
+Mountain9:
+    .byte $40,$41
+    .byte $50,$51
+    .byte $00,$00
+    .byte $00,$00
+Mountain10:
+    .byte $42,$43
+    .byte $52,$53
+    .byte $00,$00
+    .byte $00,$00
+Mountain11:
+    .byte $44,$45
+    .byte $54,$55
+    .byte $00,$00
+    .byte $00,$00
+Mountain12:
+    .byte $46,$47
+    .byte $56,$57
+    .byte $00,$00
+    .byte $00,$00
+Mountain13:
+    .byte $60,$61
+    .byte $70,$71
+    .byte $00,$00
+    .byte $00,$00
+Mountain14:
+    .byte $62,$63
+    .byte $72,$73
+    .byte $00,$00
+    .byte $00,$00
+Mountain15:
+    .byte $64,$65
+    .byte $74,$75
+    .byte $00,$00
+    .byte $00,$00
+Mountain16:
+    .byte $66,$67
+    .byte $76,$76
+    .byte $00,$00
+    .byte $00,$00
+Mountain1a :
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+Mountain1b:
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+Mountain2a:
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+Mountain4a:
+    .byte $16,$05
+    .byte $06,$16
+    .byte $00,$00
+    .byte $00,$00
+Clouds1:
+    .byte $08,$09
+    .byte $18,$19
+    .byte $00,$00
+    .byte $00,$00
+Clouds2:
+    .byte $0a,$0b
+    .byte $1A,$1B
+    .byte $00,$00
+    .byte $00,$00
+
+Clouds3:
+    .byte $0C,$0D
+    .byte $1C,$1D
+    .byte $00,$00
+    .byte $00,$00
+Clouds4:
+    .byte $0E,$0F
+    .byte $1E,$1F
+    .byte $00,$00
+    .byte $00,$00
+SnowFloor1:
+    .byte $48,$49
+    .byte $58,$59
+    .byte $00,$00
+    .byte $00,$00
+SnowFloor2:
+    .byte $4A,$4B
+    .byte $5A,$5B
+    .byte $00,$00
+    .byte $00,$00
+SnowFloor3:
+    .byte $4C,$4D
+    .byte $5C,$5D
+    .byte $00,$00
+    .byte $00,$00
+SnowFloor4:
+    .byte $80,$81
+    .byte $90,$91
+    .byte $00,$00
+    .byte $00,$00
+SnowFloor5:
+    .byte $82,$83
+    .byte $92,$93
+    .byte $00,$00
+    .byte $00,$00
+SnowFloor6:
+    .byte $84,$85
+    .byte $94,$95
+    .byte $00,$00
+    .byte $00,$00
+CaveBackground1:
+    .byte $68,$69
+    .byte $78,$79
+    .byte $00,$00
+    .byte $00,$00
+CaveBackground2:
+    .byte $6A,$6B
+    .byte $7A,$7B
+    .byte $00,$00
+    .byte $00,$00
+CaveBackground3:
+    .byte $6C,$6D
+    .byte $7C,$7D
+    .byte $00,$00
+    .byte $00,$00
+CaveBackground4:
+    .byte $68,$7B
+    .byte $79,$7A
+    .byte $00,$00
+    .byte $00,$00
+CaveBackground5:
+    .byte $7A,$6B
+    .byte $6A,$7A
+    .byte $00,$00
+    .byte $00,$00
+CaveBackground6:
+    .byte $78,$7D
+    .byte $6C,$6B
+    .byte $00,$00
+    .byte $00,$00
+CavePillar:
+    .byte $6E,$6F
+    .byte $7E,$7F
+    .byte $00,$00
+    .byte $00,$00
+CavePlatform:
+    .byte $4e,$4F
+    .byte $5E,$5F
+    .byte $00,$00
+    .byte $00,$00
+CrystalBottom1:
+    .byte $C0,$C1
+    .byte $D0,$D1
+    .byte $00,$00
+    .byte $00,$00
+CrystalBottom2:
+    .byte $C2,$C3
+    .byte $D2,$D3
+    .byte $00,$00
+    .byte $00,$00
+CrystalTop1:
+    .byte $C4,$C5
+    .byte $D4,$D5
+    .byte $00,$00
+    .byte $00,$00
+CrystalTop2:
+    .byte $C6,$C7
+    .byte $D6,$D7
+    .byte $00,$00
+    .byte $00,$00
+CrystalLeft1:
+    .byte $E4,$E5
+    .byte $F4,$F5
+    .byte $00,$00
+    .byte $00,$00
+CrystalLeft2:
+    .byte $E6,$E7
+    .byte $F6,$F7
+    .byte $00,$00
+    .byte $00,$00
+CrystalRight1:
+    .byte $E8,$E9
+    .byte $5E,$5F
+    .byte $00,$00
+    .byte $00,$00
+CrystalRight2:
+    .byte $4e,$4F
+    .byte $5E,$5F
+    .byte $00,$00
+    .byte $00,$00
+GraveLeft:
+    .byte $1c,$1C
+    .byte $f0,$f1 
+    .byte $00,$00
+    .byte $00,$00
+
+GraveRight:
+    .byte $1c,$1C
+    .byte $E0,$E1 
+    .byte $00,$00
+    .byte $00,$00
+GraveCentre:
+    .byte $E2,$E3
+    .byte $F2,$F3 
+    .byte $00,$00
+    .byte $00,$00
+MountainFringe1:
+    .byte $A6,$A7
+    .byte $B6,$B7 
+    .byte $00,$00
+    .byte $00,$00
+MountainFringe2:
+    .byte $A4,$A5
+    .byte $B4,$B5 
+    .byte $00,$00
+    .byte $00,$00
+MountainFringeUpper1:
+    .byte $A0,$A1
+    .byte $B0,$B1
+    .byte $00,$00
+    .byte $00,$00
+MountainFringeUpper2:
+    .byte $A0,$A1
+    .byte $B0,$B1
+    .byte $00,$00
+    .byte $00,$00
 ;Palette Data
 PaletteDataList:
     .word PaletteDataCandyLand
     .word PaletteDataGray
+
+PaletteData:
+    .byte $0f,$11,$21,$30, $0f,$0A,$1B,$2C, $0f,$0F,$09,$0A, $0f,$13,$23,$33
+    .byte $0f,$06,$16,$30, $0F,$1A,$2A,$30, $0F,$13,$23,$30, $0F,$2d,$3D,$30
 
 PalletteDataBlack:
     .byte $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0F
@@ -7926,7 +8493,7 @@ PaletteDataCandyLand:
     .byte $04,$06,$16,$30,  $04,$1A,$2A,$30,  $04,$13,$23,$30, $04,$2d,$3D,$30  ;sprite palette data
 
 
-PaletteData:
+PaletteDataTower:
     .byte $0f,$07,$17,$27,  $0F,$07,$17,$1A,  $0F,$03,$13,$14, $0F,$07,$18,$28  ;background palette data  
     .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
 
@@ -7961,37 +8528,6 @@ PaletteNameByzantine:
 PaletteNameGrayscale:
     .byte $EB,$EC,$ED,$EE,$EF,$EF
 
-MapHeaders:
-    .word MapHeaderRampart
-    .word MapheaderTower
-    .word MapHeaderTitle
-    .word MapHeaderVictory
-    .word MapHeaderOptions
-
-MapHeaderRampart:
-    .word ScreenDefault ; map screen
-    .word PaletteDataCandyLand ; default palette
-    .word MetaTileList 
-    
-MapHeaderTitle:
-    .word ScreenTitle ; map screen
-    .word PaletteData ; pal
-    .word MetaTileListTitle
-    
-MapHeaderVictory:
-    .word ScreenVictory
-    .word PaletteData
-    .word MetaTileListTitle
-
-MapHeaderOptions:
-    .word ScreenOptions ; map screen
-    .word PaletteData ; pal
-    .word MetaTileListTitle
-
-MapheaderTower:
-    .word ScreenTower
-    .word PaletteDataCandyLand
-    .word MetaTileListTower
 
 ScreenDefault:
     .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
@@ -8079,8 +8615,34 @@ ScreenTower:
     .byte $2D,$32,$30,$32,$30,$32,$49,$30,$30,$2D,$32,$32,$32,$32,$32,$44
     .byte $2C,$24,$24,$24,$24,$24,$2C,$24,$24,$2D,$24,$24,$24,$24,$24,$43
 
+ScreenSnow:
+    .byte $19,$1a,$17,$18,$19,$1a,$17,$18,$19,$1a,$17,$18,$19,$1a,$17,$18
+    .byte $03,$04,$05,$06,$03,$04,$05,$06,$03,$04,$05,$06,$03,$04,$05,$06
+    .byte $0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E
+    .byte $0F,$10,$11,$12,$0F,$10,$11,$12,$0F,$10,$11,$12,$0F,$10,$11,$12
+    .byte $07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A
+    .byte $36,$37,$36,$37,$36,$37,$36,$37,$36,$37,$36,$37,$36,$37,$36,$37
+    .byte $34,$35,$34,$35,$34,$35,$34,$35,$34,$35,$34,$35,$34,$35,$34,$35
+    .byte $21,$22,$23,$21,$22,$23,$28,$22,$22,$21,$22,$23,$21,$23,$23,$21
+    .byte $21,$25,$22,$23,$21,$23,$2C,$22,$23,$21,$22,$26,$26,$25,$23,$21
+    .byte $21,$22,$23,$21,$22,$26,$25,$24,$23,$21,$22,$23,$21,$22,$23,$21
+    .byte $21,$28,$25,$26,$22,$23,$21,$22,$24,$28,$22,$23,$23,$24,$23,$21
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $21,$31,$33,$32,$29,$2A,$21,$22,$25,$27,$22,$23,$21,$22,$23,$21
+    .byte $1B,$1C,$1D,$1E,$1F,$20,$1D,$1C,$1B,$1F,$1E,$20,$1F,$1E,$1D,$1C
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
 
 AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
+    .byte %00001111, %00001111, %00001111, %00001111, %00001111, %00001111, %00001111, %00001111
+    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
+    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
+    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
+    .byte %10101010, %10101010, %10101010, %10101011, %10101010, %10101010, %10101010, %10101010
+    .byte %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010
+    .byte %01010110, %01010101, %01011111, %01011010, %01011010, %01011010, %01011010, %01011010
+    .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101
+
+AttributesTower: ; each attribute byte sets the pallete for a block of pixels
     .byte %00010001, %00000000, %00000000, %00000000, %00000000, %00000000, %01010101, %01010101
     .byte %00010001, %00000000, %00000000, %10001000, %00100010, %00000000, %11110101, %11110101
     .byte %00000000, %11110000, %00000000, %01110000, %00010000, %00000000, %11110000, %00000000
@@ -8090,13 +8652,357 @@ AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
     .byte %11000000, %11110000, %11110000, %11110100, %00111101, %11110000, %11111111, %01000100
     .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %01000100
 
+
 ;;;;;;;;;;;;
 ;;; LOOK UP TABLES
 ;;;;;;;;;;;
+CloudLine:
+    .byte $08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+CloudLine2:
+    .byte $18,$19,$1A,$1B,$1C,$1D,$1E,$1F
 
 Sin:
-    .byte $01,$FF,$01,$00,$01,$00,$00,$01,$00,$00,$01,$00,$00,$00,$00
-    .byte $FF,$00,$FF,$00,$FF,$00,$00,$FF,$00,$00,$FF,$00,$00,$00,$00
+    .byte $00,$00,$01,$00,$00,$01,$00,$00,$01,$00,$00,$00,$01,$00,$00,$00,$01
+    .byte $00,$00,$00,$00,$00,$01,$00,$00,$00,$00,$01,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$ff,$00,$00,$ff,$00,$00,$ff,$00,$00,$00,$ff,$00,$00,$00,$ff
+    .byte $00,$00,$00,$00,$00,$ff,$00,$00,$00,$00,$ff,$00,$00,$00,$00,$00,$00
+;68
+
+Sin256:
+    .byte $80,$83,$86,$89
+
+.align 256
+NMIDrawCommands:
+    .word NMINoCommand ; 0 
+    .word NMIClearVerticalColumn1
+    .word NMIClearVerticalColumn2
+    .word NMIWriteVertTiles1 ; 3
+    .word NMISwapPallette ; 4
+    .word NMIClearVictoryScreen ;5
+    .word NMIDrawVictoryScreen ; 6
+    .word NMIDrawVictoryPlayer ; 7
+    .word NMIDrawVictoryPlayer ; 8
+    .word NMIDrawOptionsScreen ;9
+    .word NMIUpdateAnimatedTilesOptions ;a
+
+NMIAnimateCommands:
+    .word NMIUpdateRampart
+    .word NMIUpdateTower 
+    .word NMIUpdateGarden
+    .word NMIUpdateRest
+
+EmitterStates:
+    .word DummyEntry
+    .word EmitterProcessSnow
+    .word EmitterProcessHovering
+
+WindStateMachine:
+    .word WindWaiting ;0
+    .word WindWaiting;1
+    .word WindIncreasing;2
+    .word WindBlowing;3
+    .word WindDecreasing;4
+
+ParticleStates:
+    .word DummyEntry
+    .word ParticlesProcessWind
+    .word ParticlesProcessHoveringVertical
+    .word ParticlesProcessHoveringHorizontal
+    .word ParticlesProcessHoveringBoth
+
+MetaTileList:
+    .word brick ;00
+    .word brick_hole ;01
+    .word brick_dark_left ;02
+    .word brick_dark_right ;03
+    .word brick_bright_left ;04
+    .word brick_bright_right ; 05
+    .word earth ;06
+    .word earth_top ;07
+    .word arch_tl ;08
+    .word arch_tr ;09
+    .word arch_bl ;0A
+    .word arch_br ;0B
+    .word moon_tl ;0C
+    .word moon_tr ;0D
+    .word moon_bl ;0E 
+    .word moon_br ;0F
+    .word crack_v ;10
+    .word crack_h ;11
+    .word crack ;12
+    .word brick_lip_l;13
+    .word brick_lip_r;14
+    .word brick_bulge_l;15
+    .word brick_bulge_r;16
+    .word water_l;17
+    .word water_r;18 
+    .word window_l;19
+    .word window_r;1A
+    .word bars_l;1B
+    .word bars_r;1C
+    .word floor ;1d
+    .word floor_no_collide ;1e
+    .word floor_l ;1f
+    .word floor_r ;20
+    .word floor_corner_l ;21
+    .word floor_corner_r ;22
+    .word floor_side_l ;23
+    .word floor_side_r ;24
+    .word floor_corner_bot_l ;25
+    .word floor_corner_bot_r ;26
+    .word floor_corner_bot_mid ;27
+    .word floor_corner_bot ;28
+    .word candles ;29
+    .word brazier ;2a
+    .word pal1 ;2b
+    .word pal2 ;2c
+    .word pal3 ;2d
+    .word pal4 ;2e
+    .word brick_divided ; 2f
+    .word floor_middle ; 30
+    .word floor_half ; 31
+    .word floor_half_reversed ;32
+    .word laseremitterbottom ;33
+    .word laseremittertop ;34
+    .word conveyorBelt1 ;35
+    .word conveyorBelt2 ;36
+    .word conveyorBelt3 ;37
+    .word conveyorBelt4 ;38
+    .word conveyorBelt5 ;39
+    .word conveyorbeltrl1 ;3A
+    .word conveyorbeltrl2 ;3B
+    .word conveyorbeltrl3 ;3C
+    .word conveyorbeltrl4 ;3D
+    .word conveyorbeltrl5 ;3E
+    .word jumpablefloor ;3f
+    .word jumpablefloorreversed ;40
+
+    .word waterfalltop ;41 
+    .word waterfall1 ;42
+    .word waterfall2 ; 43
+    .word waterfall3 ; 44
+    .word waterfall4 ; 45
+    .word earth_edge_l
+    .word earth_edge_r
+
+MetaTileListTitle:
+    .word titleblank
+    .word titlepressstart1
+    .word titlepressstart2
+    .word titlepressstart3
+
+    .word titleplayercount1
+    .word titleplayercount2
+    .word titleplayercount3
+
+    .word titlegamemode1
+    .word titlegamemode2
+
+    .word titlemap
+    .word titlepalette1
+    .word titlepalette2
+
+; .align 256
+
+MetaTileListTower:
+    .word TowerPal1 ;00
+    .word TowerPal2 ;01
+    .word TowerPal3 ;02
+    .word TowerPal4;03
+    .word Rotator1;04
+    .word Rotator2;05
+    .word Rotator3;06
+    .word Rotator4;07
+    .word Rotator5;08
+    .word Rotator6;09
+    .word Rotator7;0A
+    .word Rotator8;0B
+    .word Rotator9;0C
+    .word Rotator10;0D
+    .word Rotator11;0E
+    .word Rotator12;0F
+    .word Rotator13;10
+    .word Rotator14;11
+    .word Rotator15;12
+    .word Rotator16;13
+    .word RotatorCuff1;14
+    .word RotatorCuff2;15
+    .word Corner1 ;16
+    .word Corner2 ;17
+    .word Corner3 ;18
+    .word Corner4;19
+    .word WindowEdgeTop;1A
+    .word WindowEdgeBottom;1B
+    .word WindowEdgeLeft;1C
+    .word WindowEdgeRight;1D
+    .word Panel ;1E
+    .word PanelTiled;1F 
+    .word PanelLettered1;20
+    .word PanelLettered2;21
+    .word PanelLettered3;22
+    .word PanelLettered4;23
+    .word Brick1;24
+    .word Brick2;25
+    .word Brick3;26
+    .word Brick4;27
+    .word Brick5;28
+    .word Brick6;29
+    .word Brick7;2a
+    .word Brick8;2b
+    .word Pillar1;2c
+    .word Pillar2;2d
+    .word PillarHalf1;2e
+    .word PillarHalf2;2f
+    .word PlatformHalfReversed;30
+    .word PlatformHalf;31
+    .word PlatformFull;32;
+    .word Letters1;33
+    .word Letters2;34
+    .word Letters3;35
+    .word Letters4;36
+    .word Letters5;37
+    .word Letters6;38
+    .word Letters7;39
+    .word Letters8;3a
+    .word LettersVined1 ;3b
+    .word LettersVined2 ;3c
+    .word LettersVined3 ;3d
+    .word LettersVined4 ;3E
+    .word LettersVined5 ;3F
+    .word Diamond ;40
+    .word DiamondVined ;41
+    .word DiamondSmall;42
+    .word PillarVined ;43
+    .word PillarVined2;44
+    .word WindowCornerTL2 ;45
+    .word WindowCornerTR2;46
+    .word WindowCornerBL2;47
+    .word WindowCornerBR2;48
+    .word PlatformWithPillar;49
+    .word PlatformWithPillar2;4A
+    .word Diamond2;4B
+    .word PanelVined;4C
+    .word PanelVined2;4D
+    .word PanelTiled2;4e
+    .word PanelTiled3;4f
+    .word PanelTiled4;50
+
+
+MetatilelistSnow:
+    .word SnowPal1 ;00
+    .word SnowPal2 ;01
+    .word SnowPal3 ;02
+    .word Mountain1 ;03
+    .word Mountain2;4
+    .word Mountain3;5
+    .word Mountain4;6
+    .word Mountain5;7
+    .word Mountain6;8
+    .word Mountain7;9
+    .word Mountain8;a
+    .word Mountain9;b
+    .word Mountain10;c
+    .word Mountain11;d
+    .word Mountain12;e
+    .word Mountain13;f
+    .word Mountain14;10
+    .word Mountain15;11
+    .word Mountain16;12
+    .word Mountain1a;13
+    .word Mountain1b;14
+    .word Mountain2a;15
+    .word Mountain4a;16
+    .word Clouds1;17
+    .word Clouds2;18
+    .word Clouds3;19
+    .word Clouds4;1a
+    .word SnowFloor1;1B
+    .word SnowFloor2;1C
+    .word SnowFloor3;1D
+    .word SnowFloor4;1E
+    .word SnowFloor5;1F
+    .word SnowFloor6;20
+    .word CaveBackground1;21
+    .word CaveBackground2;22
+    .word CaveBackground3;23
+    .word CaveBackground4;24
+    .word CaveBackground5;25
+    .word CaveBackground6;26
+    .WORD CavePillar ;27
+    .word CavePlatform ;28
+    .word CrystalBottom1 ;29
+    .word CrystalBottom1 ;2A
+    .word CrystalTop1 ;2B
+    .word CrystalTop2 ;2C
+    .word CrystalLeft1 ;2D
+    .word CrystalLeft2 ;2E
+    .word CrystalRight1 ;2F
+    .word CrystalRight2 ;30
+    .word GraveLeft;31
+    .word GraveRight;32
+    .word GraveCentre;33
+    .word MountainFringe1 ; 34
+    .word MountainFringe2 ;35
+    .word MountainFringeUpper1 ;36
+    .word MountainFringeUpper2 ;37
+
+
+
+; .align 256
+
+PlayerAddSpeedList:
+    .word DummyEntry
+    .word AddSpeedP1
+    .word AddSpeedP2
+    .word AddSpeedP3
+    .word AddSpeedP4
+
+PlayerSubSpeedList:
+    .word DummyEntry
+    .word SubSpeedP1
+    .word SubSpeedP2
+    .word SubSpeedP3
+    .word SubSpeedP4
+
+
+MapHeaders:
+    .word MapHeaderRampart
+    .word MapheaderTower
+    .word MapHeaderTitle
+    .word MapHeaderSnow
+    .word MapHeaderVictory
+    .word MapHeaderOptions
+
+MapHeaderRampart:
+    .word ScreenDefault ; map screen
+    .word PaletteDataCandyLand ; default palette
+    .word MetaTileList 
+    
+MapHeaderTitle:
+    .word ScreenTitle ; map screen
+    .word PaletteData ; pal
+    .word MetaTileListTitle
+    
+MapHeaderVictory:
+    .word ScreenVictory
+    .word PaletteData
+    .word MetaTileListTitle
+
+MapHeaderOptions:
+    .word ScreenOptions ; map screen
+    .word PaletteData ; pal
+    .word MetaTileListTitle
+
+MapheaderTower:
+    .word ScreenTower
+    .word PaletteDataCandyLand
+    .word MetaTileListTower
+
+MapHeaderSnow:
+    .word ScreenSnow
+    .word PaletteData
+    .word MetatilelistSnow
+
 
 GameStatePath:
     .word DoTitleLogic
@@ -8113,34 +9019,6 @@ PlayerSpawnTable:
     .word SpawnPlayerPort4
 
 DestroyEntityList: ; defines behaviours for when an entity is destroyed
-    .word NoDeathAction ; 0 
-    .word Player1Death ; 1
-    .word Player2Death ; 2
-    .word Player3Death ; 3
-    .word Player4Death ; 4
-    .word NoDeathAction ; 5
-    .word NoDeathAction ; 6
-    .word NoDeathAction ; 7
-    .word NoDeathAction ; 8
-    .word NoDeathAction ; 9
-    .word NoDeathAction ; 10
-    .word NoDeathAction ; 11
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
-    .word NoDeathAction
 
 
 
@@ -8206,7 +9084,7 @@ MetaSpriteListSlider:
     .word MetaSpriteSlider1
     .word MetaSpriteSlider2
 
-
+; .align 256 
 MetaSpriteListProjectileSpell:
     .word ProjectileSpellSprite1
     .word ProjectileSpellSprite2
@@ -8859,6 +9737,8 @@ SpawnerSpeedRamp:
     .incbin "castle_set-bank1.chr"
     .incbin "tower1.chr"
     .incbin "cloudbank.chr"
+    .incbin "snow.chr"
+
     ; .incbin "castle_set-bank1.chr"
     ; .incbin "tower3.chr"
     ; .incbin "castle_set-bank2.chr"

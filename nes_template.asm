@@ -91,11 +91,12 @@
     UpperScrollX: .res 1
 
 
-.segment "OAM"
+.segment "OAM" ;= $0200
     SpriteBuffer: .res 256        ; sprite OAM data to be uploaded by DMA
 
-.segment "RAM"
+.segment "RAM" ;= $0300
     CollisionMap: .res 240
+    CurrentPPUMask: .res 1
     CurrentBackgroundPalette: .res 16
     CurrentSpritePallette: .res 16
     GameTimer: .res 2
@@ -321,11 +322,10 @@ SetAttributes:
     BNE AttributeLoop
 
 
-LDA #<ScreenTower
-STA world
-LDA #>ScreenTower
-STA world+1
-JSR LoadCollisionData
+; LDA #<ScreenTower
+; STA world
+; LDA #>ScreenTower
+; STA world+1
 
 
 BIT PPUControl
@@ -337,7 +337,8 @@ STA PPUAddress
 LDA #$01
 sta MIRRORING 
 
-JSR InitGameHat
+JSR InitOptionsScreen
+
 
 ; ldx #<music_data_untitled
 ; ldy #>music_data_untitled
@@ -357,7 +358,9 @@ BPL :-
 ; Enable Rendering
 LDA #%10010000
 STA PPUControl
-LDA #%00111110
+LDA #%00011110
+ORA CurrentPPUMask
+STA CurrentPPUMask
 STA PPUMask
 CLI
 
@@ -372,18 +375,17 @@ CLI
 ;This is the forever loop, it goes here whenever its taken out of the NMI intterupt loop. Here is *ideally* where non draw stuff will happen...
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
+
     ; JSR ManageGameState
     JSR SelectGameStatePath
     JSR Setrng
     JSR FillTileBuffer
     JSR IncFrameCount   ; Counts to 59 then resets to 0
-    ; LDA #%00011111
-    ; STA PPUMask
+
     JSR OAMBuffer   ; Sprite data is written to the buffer here
     JSR OAMBufferParticles
-    ; LDA #%00011110
-    ; STA PPUMask
     ; JSR famistudio_update
+
 ; Once the game logic loop is done, we hover here and wait for a vblank
 ; After a return from Vblank, we jump back to the logic loop    
 IsVBlankDone:
@@ -1060,6 +1062,13 @@ PrepareLevelData:
     INY 
     LDA (jumppointer), Y 
     STA metatilepointer+1
+
+    INY 
+    LDA (jumppointer), Y 
+    AND #%11100001
+    ORA CurrentPPUMask
+    STA CurrentPPUMask
+    STA PPUMask
 RTS
 
 LoadPalletteToRam:
@@ -1165,7 +1174,7 @@ STA CurrentColumnHigh
 LDA #$00
 STA CurrentColumnLow
 
-LDA #$03
+LDA #$05
 JSR PrepareLevelData
 
 
@@ -1186,7 +1195,7 @@ CPX #entity_mem
 BNE :-
 
 LDX #$20
-LDY #$20
+LDY #$80
 LDA #EntityType::Player 
 JSR SpawnEntity
 LDX #$50
@@ -1284,6 +1293,8 @@ JSR SwapRightBankToTower
 LDA #$03
 STA CurrentMap
 JSR PrepareLevelData
+JSR LoadCollisionData
+
 LDA CurrentMap
 JSR InitMap
 JSR LoadPalletteToRam
@@ -1324,6 +1335,17 @@ InitMapList:
     .word InitMapRest
 
 InitMap:
+    ; LDY #$00 
+    ; :
+    ; LDA (world), Y 
+    ; STA CollisionMap, Y 
+    ; INY 
+    ; CPY #$F0 
+    ; BEQ :+
+    ; JMP :-
+    ; :
+
+
     LDA CurrentMap
     ASL
     TAY 
@@ -1609,7 +1631,7 @@ MapRestLogic:
     TAX
     :
     JSR Prng
-    CMP #$78
+    CMP #$58
     BCC :-
     CMP #$C0 
     BCS :-
@@ -1623,7 +1645,7 @@ MapRestLogic:
 
     JSR ProcessWind
 
-    LDA #%00000010
+    LDA #%00000011
     BIT framecount
     BEQ :+
         RTS
@@ -1636,7 +1658,7 @@ MapRestLogic:
     LDA #MINSNOWBANK
     :
     STA CurrentTowerRotation
-    ; JSR SetTowerRotatorBank
+    JSR SetTowerRotatorBank
 
 
 RTS
@@ -1648,7 +1670,8 @@ MapSpecificLogicTree:
     .word MapRestLogic
 
 DoGameLogic:
-
+    ; LDA #%00011111
+    ; STA PPUMask
     INC UpperScrollX
     JSR ProcessSpawnStack
     JSR ReadButtons
@@ -1686,9 +1709,8 @@ RTS
 ProcessOptionsInput:
     JSR CheckDown
     BEQ :++
+    INC MenuSelectorIndex
     LDA MenuSelectorIndex
-    CLC
-    ADC #$01
     CMP #OPTIONSNUMBER
     BCC :+
     LDA #$00
@@ -2495,8 +2517,7 @@ SpawnParticles:
 RTS
 
 ProcessParticles:
-    LDA #%00011111
-    STA PPUMask
+
     LDY #$00
     LDX #$00
     ProcessParticlesLoop:
@@ -2518,8 +2539,6 @@ ProcessParticles:
     JMP ProcessParticlesLoop
     :
 
-    LDA #%00011110
-    STA PPUMask
 
 RTS
 
@@ -4847,7 +4866,21 @@ OptionScreenSelectorProcess:
     ASL
     ADC #$40
     STA entities+Entity::ypos, X
-    JMP EntityComplete
+
+    LDY entities+Entity::animationtimer, X
+    LDA Sin, y 
+    CLC 
+    ADC entities+Entity::xpos, x 
+    STA entities+Entity::xpos, x 
+    INY 
+    CPY #68 
+    BNE :+
+    LDY #$00
+    :
+    TYA 
+    STA entities+Entity::animationtimer, x
+
+JMP EntityComplete
 
 
 ClearEntity:
@@ -4906,11 +4939,11 @@ ParticlesProcessHoveringVertical:
 
     LDA WindSign
     BEQ :+
-    JSR Prng
-    AND #%00000001
-    CLC 
-    ADC ParticlesX, X 
-    STA ParticlesX, X
+    ; JSR Prng
+    ; AND #%00000001
+    ; CLC 
+    ; ADC ParticlesX, X 
+    ; STA ParticlesX, X
     LDA ParticlesSubX, X 
     CLC 
     ADC ParticlesWindStrengthXLow
@@ -5217,7 +5250,7 @@ LoadSingleScreen:
         BEQ :+
         JMP FillCollisionMapLoop
         :
- 
+    
 
 EndScreenLoad:
 LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
@@ -6522,9 +6555,9 @@ CollideDown2:
     LDA CollisionMap, Y ; load the meta tile id
     ASL 
     TAY  
-    LDA MetaTileListTower, Y 
+    LDA MetatilelistSnow, Y 
     STA jumppointer
-    LDA MetaTileListTower+1, Y 
+    LDA MetatilelistSnow+1, Y 
     STA jumppointer+1
     ; LDY #$04
     ; LDA (jumppointer), Y 
@@ -6592,9 +6625,9 @@ CollideDown2:
     LDA CollisionMap, Y ; load the meta tile id
     ASL 
     TAY  
-    LDA MetaTileListTower, Y 
+    LDA MetatilelistSnow, Y 
     STA jumppointer
-    LDA MetaTileListTower+1, Y 
+    LDA MetatilelistSnow+1, Y 
     STA jumppointer+1
     LDY #$04
     LDA (jumppointer), Y 
@@ -8190,8 +8223,8 @@ PanelTiled4:
 
 
 SnowPal1:
-    .byte $16,$05
-    .byte $06,$16
+    .byte $BF,$BF
+    .byte $BF,$BF
     .byte $00,$00
     .byte $00,$00
 SnowPal2:
@@ -8255,53 +8288,53 @@ Mountain10:
     .byte $00,$00
     .byte $00,$00
 Mountain11:
-    .byte $44,$45
-    .byte $54,$55
+    .byte $42,$43
+    .byte $70,$71
     .byte $00,$00
     .byte $00,$00
 Mountain12:
-    .byte $46,$47
-    .byte $56,$57
+    .byte $40,$41
+    .byte $72,$73
     .byte $00,$00
     .byte $00,$00
 Mountain13:
     .byte $60,$61
-    .byte $70,$71
+    .byte $54,$55
     .byte $00,$00
     .byte $00,$00
 Mountain14:
     .byte $62,$63
-    .byte $72,$73
+    .byte $56,$57
     .byte $00,$00
     .byte $00,$00
 Mountain15:
-    .byte $64,$65
     .byte $74,$75
+    .byte $54,$55
     .byte $00,$00
     .byte $00,$00
 Mountain16:
-    .byte $66,$67
     .byte $76,$76
+    .byte $54,$55
     .byte $00,$00
     .byte $00,$00
-Mountain1a :
-    .byte $16,$05
-    .byte $06,$16
+Mountain1a:
+    .byte $28,$29
+    .byte $38,$39
     .byte $00,$00
     .byte $00,$00
 Mountain1b:
-    .byte $16,$05
-    .byte $06,$16
+    .byte $2A,$2B
+    .byte $3A,$3B
     .byte $00,$00
     .byte $00,$00
 Mountain2a:
-    .byte $16,$05
-    .byte $06,$16
+    .byte $2C,$2D
+    .byte $3C,$3D
     .byte $00,$00
     .byte $00,$00
 Mountain4a:
-    .byte $16,$05
-    .byte $06,$16
+    .byte $2E,$2F
+    .byte $3E,$3F
     .byte $00,$00
     .byte $00,$00
 Clouds1:
@@ -8328,33 +8361,33 @@ Clouds4:
 SnowFloor1:
     .byte $48,$49
     .byte $58,$59
-    .byte $00,$00
-    .byte $00,$00
+    .byte $01,$01
+    .byte $01,$01
 SnowFloor2:
     .byte $4A,$4B
     .byte $5A,$5B
-    .byte $00,$00
-    .byte $00,$00
+    .byte $01,$01
+    .byte $01,$01
 SnowFloor3:
     .byte $4C,$4D
     .byte $5C,$5D
-    .byte $00,$00
-    .byte $00,$00
+    .byte $01,$01
+    .byte $01,$01
 SnowFloor4:
     .byte $80,$81
     .byte $90,$91
-    .byte $00,$00
-    .byte $00,$00
+    .byte $01,$01
+    .byte $01,$01
 SnowFloor5:
     .byte $82,$83
     .byte $92,$93
-    .byte $00,$00
-    .byte $00,$00
+    .byte $01,$01
+    .byte $01,$01
 SnowFloor6:
     .byte $84,$85
     .byte $94,$95
-    .byte $00,$00
-    .byte $00,$00
+    .byte $01,$01
+    .byte $01,$01
 CaveBackground1:
     .byte $68,$69
     .byte $78,$79
@@ -8393,7 +8426,7 @@ CavePillar:
 CavePlatform:
     .byte $4e,$4F
     .byte $5E,$5F
-    .byte $00,$00
+    .byte $03,$03
     .byte $00,$00
 CrystalBottom1:
     .byte $C0,$C1
@@ -8426,51 +8459,192 @@ CrystalLeft2:
     .byte $00,$00
     .byte $00,$00
 CrystalRight1:
-    .byte $E8,$E9
-    .byte $5E,$5F
+    .byte $E0,$E1
+    .byte $F0,$F1
     .byte $00,$00
     .byte $00,$00
 CrystalRight2:
-    .byte $4e,$4F
-    .byte $5E,$5F
+    .byte $E2,$E3
+    .byte $F2,$F3
     .byte $00,$00
     .byte $00,$00
 GraveLeft:
-    .byte $1c,$1C
-    .byte $f0,$f1 
+    .byte $A0,$A1
+    .byte $B0,$B1 
+    .byte $01,$01
+    .byte $01,$01
+
+GraveRight:
+    .byte $A4,$A5
+    .byte $B4,$B5 
+    .byte $01,$01
+    .byte $01,$01
+GraveCentre:
+    .byte $A2,$A3
+    .byte $B2,$B3 
+    .byte $01,$01
+    .byte $01,$01
+Fan:
+    .byte $c8,$C9
+    .byte $D8,$D9 
+    .byte $00,$00
+    .byte $00,$00
+BigFan1:
+    .byte $CC,$CD
+    .byte $DC,$DD 
+    .byte $00,$00
+    .byte $00,$00
+BigFan2:
+    .byte $CE,$CF
+    .byte $DE,$DF 
+    .byte $00,$00
+    .byte $00,$00
+BigFan3:
+    .byte $EC,$ED
+    .byte $FC,$FD 
+    .byte $00,$00
+    .byte $00,$00
+BigFan4:
+    .byte $EE,$EF
+    .byte $FE,$FF 
+    .byte $00,$00
+    .byte $00,$00
+GirderHorizontalLeft:
+    .byte $A8,$A9
+    .byte $BF,$BF 
+    .byte $03,$03
+    .byte $00,$00
+GirderHorizontalMiddle:
+    .byte $A9,$A9
+    .byte $BF,$BF 
+    .byte $03,$03
+    .byte $00,$00
+GirderHorizontalRight:
+    .byte $A9,$AA
+    .byte $BF,$BF 
+    .byte $03,$03
+    .byte $00,$00
+Machinery:
+    .byte $EA,$EB
+    .byte $FA,$FB 
+    .byte $00,$00
+    .byte $00,$00
+WaterfallSnow:
+    .byte $E8,$E9
+    .byte $F8,$F9 
+    .byte $00,$00
+    .byte $00,$00
+WaterfallGirder:
+    .byte $A9,$A9
+    .byte $F8,$F9 
+    .byte $00,$00
+    .byte $00,$00
+Cave1:
+    .byte $AB,$85
+    .byte $BF,$BF 
+    .byte $01,$03
+    .byte $00,$00
+Cave2:
+    .byte $84,$AC
+    .byte $BF,$BF 
+    .byte $03,$01
+    .byte $00,$00
+WaterfallSnowSplit1:
+    .byte $6C,$E8
+    .byte $6C,$E8 
+    .byte $00,$00
+    .byte $00,$00
+WaterfallSnowSplit2:
+    .byte $E9,$6D
+    .byte $E9,$6D
+    .byte $00,$00
+    .byte $00,$00
+CaveLeft:
+    .byte $BF,$6D
+    .byte $BF,$6D 
+    .byte $00,$00
+    .byte $00,$00
+CaveRight:
+    .byte $6C,$BF
+    .byte $6C,$BF 
+    .byte $00,$00
+    .byte $00,$00
+PlatformSmallLeft:
+    .byte $BF,$BF 
+    .byte $84,$BF
+    .byte $00,$00
+    .byte $03,$00
+PlatformSmallRight:
+    .byte $Bf,$BF 
+    .byte $Bf,$85
+    .byte $00,$00
+    .byte $00,$03
+PlatformSmallCentered:
+    .byte $Bf,$BF 
+    .byte $84,$85
+    .byte $00,$00
+    .byte $03,$03
+SnowBlock2:
+    .byte $AB,$AC 
+    .byte $BB,$BC
+    .byte $01,$01
+    .byte $01,$01
+SnowBlock1:
+    .byte $AB,$AD 
+    .byte $BC,$BC
+    .byte $01,$01
+    .byte $01,$01
+CrystalCenteredTop1:
+    .byte $Bf,$C0
+    .byte $Bf,$D0 
+    .byte $00,$00
+    .byte $00,$00
+CrystalCenteredTop2:
+    .byte $C1,$BF
+    .byte $D1,$BF 
+    .byte $00,$00
+    .byte $00,$00
+CrystalCenteredBottom1:
+    .byte $Bf,$C4
+    .byte $Bf,$d4 
+    .byte $00,$00
+    .byte $00,$00
+CrystalCenteredBottom2:
+    .byte $C5,$BF
+    .byte $D5,$BF 
+    .byte $00,$00
+    .byte $00,$00
+Grill1:
+    .byte $86,$87
+    .byte $96,$97 
+    .byte $01,$01
+    .byte $01,$01
+Grill2:
+    .byte $8A,$8A
+    .byte $96,$97 
+    .byte $01,$01
+    .byte $01,$01
+GirderVerticalLeft:
+    .byte $9f,$e5
+    .byte $9F,$f5 
+    .byte $00,$00
+    .byte $00,$00
+GirderVerticalRight:
+    .byte $e2,$9F
+    .byte $f2,$9F 
+    .byte $00,$00
+    .byte $00,$00
+GirderVerticalCentred:
+    .byte $9F,$e7
+    .byte $9F,$f7 
+    .byte $00,$00
+    .byte $00,$00
+Gear:
+    .byte $CA,$CB
+    .byte $DA,$DB 
     .byte $00,$00
     .byte $00,$00
 
-GraveRight:
-    .byte $1c,$1C
-    .byte $E0,$E1 
-    .byte $00,$00
-    .byte $00,$00
-GraveCentre:
-    .byte $E2,$E3
-    .byte $F2,$F3 
-    .byte $00,$00
-    .byte $00,$00
-MountainFringe1:
-    .byte $A6,$A7
-    .byte $B6,$B7 
-    .byte $00,$00
-    .byte $00,$00
-MountainFringe2:
-    .byte $A4,$A5
-    .byte $B4,$B5 
-    .byte $00,$00
-    .byte $00,$00
-MountainFringeUpper1:
-    .byte $A0,$A1
-    .byte $B0,$B1
-    .byte $00,$00
-    .byte $00,$00
-MountainFringeUpper2:
-    .byte $A0,$A1
-    .byte $B0,$B1
-    .byte $00,$00
-    .byte $00,$00
 ;Palette Data
 PaletteDataList:
     .word PaletteDataCandyLand
@@ -8570,11 +8744,11 @@ ScreenOptions:
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$04,$05,$06,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$07,$08,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$09,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$0A,$0B,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$07,$08,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
@@ -8617,29 +8791,29 @@ ScreenTower:
 
 ScreenSnow:
     .byte $19,$1a,$17,$18,$19,$1a,$17,$18,$19,$1a,$17,$18,$19,$1a,$17,$18
-    .byte $03,$04,$05,$06,$03,$04,$05,$06,$03,$04,$05,$06,$03,$04,$05,$06
+    .byte $03,$04,$05,$06,$13,$04,$05,$14,$03,$04,$05,$06,$15,$16,$05,$06
+    .byte $07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A
     .byte $0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E
     .byte $0F,$10,$11,$12,$0F,$10,$11,$12,$0F,$10,$11,$12,$0F,$10,$11,$12
-    .byte $07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A
-    .byte $36,$37,$36,$37,$36,$37,$36,$37,$36,$37,$36,$37,$36,$37,$36,$37
-    .byte $34,$35,$34,$35,$34,$35,$34,$35,$34,$35,$34,$35,$34,$35,$34,$35
-    .byte $21,$22,$23,$21,$22,$23,$28,$22,$22,$21,$22,$23,$21,$23,$23,$21
-    .byte $21,$25,$22,$23,$21,$23,$2C,$22,$23,$21,$22,$26,$26,$25,$23,$21
-    .byte $21,$22,$23,$21,$22,$26,$25,$24,$23,$21,$22,$23,$21,$22,$23,$21
-    .byte $21,$28,$25,$26,$22,$23,$21,$22,$24,$28,$22,$23,$23,$24,$23,$21
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $21,$31,$33,$32,$29,$2A,$21,$22,$25,$27,$22,$23,$21,$22,$23,$21
-    .byte $1B,$1C,$1D,$1E,$1F,$20,$1D,$1C,$1B,$1F,$1E,$20,$1F,$1E,$1D,$1C
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $39,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3b
+    .byte $00,$29,$2a,$00,$00,$00,$00,$00,$00,$00,$51,$50,$00,$35,$36,$12
+    .byte $00,$3F,$40,$00,$00,$00,$00,$00,$00,$00,$51,$50,$00,$37,$38,$00
+    .byte $43,$41,$42,$44,$4C,$4D,$00,$29,$00,$00,$51,$50,$00,$39,$3B,$00
+    .byte $43,$41,$42,$44,$48,$49,$00,$3f,$40,$00,$39,$3B,$00,$34,$34,$00
+    .byte $43,$41,$42,$44,$4A,$4B,$43,$41,$42,$44,$50,$51,$00,$39,$3B,$00
+    .byte $43,$41,$42,$44,$00,$52,$43,$41,$42,$28,$47,$28,$00,$50,$51,$00
+    .byte $43,$31,$33,$32,$29,$3C,$2A,$41,$42,$27,$2C,$27,$00,$50,$51,$00
+    .byte $1B,$1C,$1D,$1E,$1F,$20,$39,$3E,$3E,$3B,$4E,$4F,$4E,$4E,$4F,$4f
+    .byte $00,$00,$00,$00,$00,$00,$00,$3E,$3E,$00,$00,$00,$00,$00,$00,$00
 
 AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
     .byte %00001111, %00001111, %00001111, %00001111, %00001111, %00001111, %00001111, %00001111
     .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %10101010, %10101010, %10101010, %10101011, %10101010, %10101010, %10101010, %10101010
-    .byte %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010
-    .byte %01010110, %01010101, %01011111, %01011010, %01011010, %01011010, %01011010, %01011010
+    .byte %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %10100000
+    .byte %01100110, %10011010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010
+    .byte %10101010, %10101010, %01011010, %10101011, %10101010, %01011010, %10100110, %10101001
+    .byte %10101010, %10101010, %10101010, %00100010, %10000100, %01011010, %10100110, %10101010
+    .byte %00100100, %01010101, %01011111, %01010011, %01011000, %01011010, %01011010, %01011010
     .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101
 
 AttributesTower: ; each attribute byte sets the pallete for a block of pixels
@@ -8941,14 +9115,38 @@ MetatilelistSnow:
     .word GraveLeft;31
     .word GraveRight;32
     .word GraveCentre;33
-    .word MountainFringe1 ; 34
-    .word MountainFringe2 ;35
-    .word MountainFringeUpper1 ;36
-    .word MountainFringeUpper2 ;37
-
-
-
-; .align 256
+    .word Fan ;34
+    .word BigFan1 ;35
+    .word BigFan2 ;36
+    .word BigFan3;37
+    .word BigFan4;38
+    .word GirderHorizontalLeft;39
+    .word GirderHorizontalMiddle;3A
+    .word GirderHorizontalRight;3B
+    .word Machinery;3C
+    .word WaterfallSnow;3D
+    .word WaterfallGirder;3E
+    .word Cave1 ;3F
+    .word Cave2;40
+    .word WaterfallSnowSplit1;41
+    .word WaterfallSnowSplit2
+    .word CaveLeft;43
+    .word CaveRight ;44
+    .word PlatformSmallLeft;45
+    .word PlatformSmallRight;46
+    .word PlatformSmallCentered;47
+    .word SnowBlock1;48
+    .word SnowBlock2;49
+    .word CrystalCenteredBottom1;4a
+    .word CrystalCenteredBottom2;4b
+    .word CrystalCenteredTop1;4c
+    .word CrystalCenteredTop2;4d
+    .word Grill1;4e
+    .word Grill2;4f
+    .Word GirderVerticalLeft ;50
+    .word GirderVerticalRight;51
+    .word Gear;52
+    .WORD GirderVerticalCentred
 
 PlayerAddSpeedList:
     .word DummyEntry
@@ -8977,7 +9175,7 @@ MapHeaderRampart:
     .word ScreenDefault ; map screen
     .word PaletteDataCandyLand ; default palette
     .word MetaTileList 
-    
+
 MapHeaderTitle:
     .word ScreenTitle ; map screen
     .word PaletteData ; pal
@@ -8992,6 +9190,8 @@ MapHeaderOptions:
     .word ScreenOptions ; map screen
     .word PaletteData ; pal
     .word MetaTileListTitle
+    .byte %00011110
+    .byte $00 
 
 MapheaderTower:
     .word ScreenTower
@@ -9002,7 +9202,8 @@ MapHeaderSnow:
     .word ScreenSnow
     .word PaletteData
     .word MetatilelistSnow
-
+    .byte %10000000 ; colour emphasis
+    .byte $00 ; padding
 
 GameStatePath:
     .word DoTitleLogic

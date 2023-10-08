@@ -34,10 +34,11 @@
     world: .res 2 ; this is a pointer to the address of the current screen we want to fetch tiles on
     metatilepointer: .res 2
     pallettepointer: .res 2
-    screenheaderpointer: .res 2
+    attributespointer: .res 2
+
     seed: .res 2 ; the seed for the pseudo rng. This will be inited to anything by 0 later
     jumppointer: .res 2 ; used to jump to specic places in memory with jump tables
-    MetaspritePointer: .res 2
+    irqpointer: .res 2
     nmidone: .res 1 ; value to check to see if the nmi is done
     scrollx: .res 1 ; how far the screen is scrolled in x dir
     scrolly: .res 1 ; how far the screen is scrolled in y dir
@@ -195,6 +196,7 @@
 
     rng: .res 8
     rngindex: .res 1
+    NMIIrqValue: .res 1
 .segment "STARTUP" ; this is called when the console starts. Init a few things here, otherwise little here
     Reset:
         SEI ; Disables all interrupts
@@ -250,10 +252,10 @@ CLEARMEM:
     BIT PPUStatus
     BPL :-
 
-    LDA #$02
-    STA OAMDMA
+LDA #$02
+STA OAMDMA
 
-    LDX #$00
+LDX #$00
 
 LDA #$20
 STA CurrentColumnHigh
@@ -294,11 +296,14 @@ STA PPUAddress
 LDA #$00
 STA PPUAddress
 
+
+LDX #$00
 LoadtoPPU:
-    LDA CurrentBackgroundPalette, X 
+    LDA CurrentBackgroundPalette, X
+    LDA PaletteData, X  
     STA PPUData ; $3F00, $3F01, $3F02 => $3F1F
     INX
-    CPX #$20
+    CPX #32
     BNE LoadtoPPU 
 
 ; For the prng to work, it needs a seed of any nonzero number to start at
@@ -316,29 +321,56 @@ SetAttributes:
     STA PPUAddress
     AttributeLoop:
     LDA AttributesDefault, X 
-    STA $2007
+    STA PPUData
     INX
     CPX #64
     BNE AttributeLoop
 
+BIT PPUStatus
+LDA #$20
+STA PPUAddress
+LDA #$00
+STA PPUAddress
 
-; LDA #<ScreenTower
-; STA world
-; LDA #>ScreenTower
-; STA world+1
 
+LDA #<IrqDoNothing
+STA irqpointer
+LDA #>IrqDoNothing
+STA irqpointer+1
 
 BIT PPUControl
 LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
 STA PPUAddress
 LDA #$00
 STA PPUAddress
+; JSR LoadSingleScreen
 
 LDA #$01
 sta MIRRORING 
 
-JSR InitOptionsScreen
+LDA #<ScreenDefault
+STA world
+LDA #>ScreenDefault
+STA world+1
 
+
+; BIT PPUControl
+; LDA #$20 ; write the address of the part of vram we want to start at, upper byte first 20 -> 00
+; STA PPUAddress
+; LDA #$00
+; STA PPUAddress
+
+LDX #$00
+LDY #$00
+:
+STX PPUData
+INX 
+CPX #$00
+BNE :-
+
+; jsr SwapRightBankToRampart
+; JSR InitOptionsScreen
+jsr InitGameHat
 
 ; ldx #<music_data_untitled
 ; ldy #>music_data_untitled
@@ -359,8 +391,6 @@ BPL :-
 LDA #%10010000
 STA PPUControl
 LDA #%00011110
-ORA CurrentPPUMask
-STA CurrentPPUMask
 STA PPUMask
 CLI
 
@@ -376,7 +406,6 @@ CLI
 ; It runs through the whole game loop, then waits for the screen to be drawn then loops back to the beginning.
 Loop:
 
-    ; JSR ManageGameState
     JSR SelectGameStatePath
     JSR Setrng
     JSR FillTileBuffer
@@ -426,7 +455,7 @@ NMI:
     :
     NMIDrawCommandReturnPoint:
 
-    ; Check for level specific commands
+    ; ; Check for level specific commands
     LDA NMIEnableLevelEffects
     BEQ :+
         LDA CurrentMap
@@ -439,7 +468,7 @@ NMI:
         JMP (jumppointer)    
     :
     NMILevelUpdateReturnPoint:
-    LDA #$10 ;2
+    LDA NMIIrqValue ;2
     STA IRQLATCH ;4
     STA IRQRELOAD ;4
     STA IRQENABLE ;4
@@ -449,12 +478,26 @@ NMI:
     STA OAMAddress 
     LDA #$02 
     STA OAMDMA
+    
+    ; LDA #%10010000
+    ; STA PPUControl
 
-    BIT PPUStatus;4
-    LDA UpperScrollX
-    STA PPUScroll;4
+    ; bit PPUStatus
+    ; LDA #$20
+    ; sta PPUAddress
+    ; lda #$00
+    ; sta PPUAddress
+
+    LDA #%10010000
+    STA PPUControl
+
+    BIT PPUStatus
+    ; LDA UpperScrollX
     LDA #$00
-    STA PPUScroll;4
+    STA PPUScroll
+    LDA #$00
+    STA PPUScroll
+
 
     INC nmidone;5
 
@@ -471,6 +514,81 @@ NMI:
 
 
 NMISwapPallette:
+    BIT PPUStatus
+    LDA #$3F 
+    STA PPUAddress
+    LDA #$00 
+    STA PPUAddress
+    ; LDA #$13
+    ; STA PPUData
+    LDA CurrentBackgroundPalette
+    STA PPUData
+    LDA CurrentBackgroundPalette+1
+    STA PPUData
+    LDA CurrentBackgroundPalette+2
+    STA PPUData
+    LDA CurrentBackgroundPalette+3
+    STA PPUData
+    LDA CurrentBackgroundPalette+4
+    STA PPUData
+    LDA CurrentBackgroundPalette+5
+    STA PPUData
+    LDA CurrentBackgroundPalette+6
+    STA PPUData
+    LDA CurrentBackgroundPalette+7
+    STA PPUData
+    LDA CurrentBackgroundPalette+8
+    STA PPUData
+    LDA CurrentBackgroundPalette+9
+    STA PPUData
+    LDA CurrentBackgroundPalette+10
+    STA PPUData
+    LDA CurrentBackgroundPalette+11
+    STA PPUData
+    LDA CurrentBackgroundPalette+12
+    STA PPUData
+    LDA CurrentBackgroundPalette+13
+    STA PPUData
+    LDA CurrentBackgroundPalette+14
+    STA PPUData
+    LDA CurrentBackgroundPalette+15
+    STA PPUData
+    LDA CurrentBackgroundPalette+16
+    STA PPUData
+    LDA CurrentBackgroundPalette+17
+    STA PPUData
+    LDA CurrentBackgroundPalette+18
+    STA PPUData
+    LDA CurrentBackgroundPalette+19
+    STA PPUData
+    LDA CurrentBackgroundPalette+20
+    STA PPUData
+    LDA CurrentBackgroundPalette+21
+    STA PPUData
+    LDA CurrentBackgroundPalette+22
+    STA PPUData
+    LDA CurrentBackgroundPalette+23
+    STA PPUData
+    LDA CurrentBackgroundPalette+24
+    STA PPUData
+    LDA CurrentBackgroundPalette+25
+    STA PPUData
+    LDA CurrentBackgroundPalette+26
+    STA PPUData
+    LDA CurrentBackgroundPalette+27
+    STA PPUData
+    LDA CurrentBackgroundPalette+28
+    STA PPUData
+    LDA CurrentBackgroundPalette+29
+    STA PPUData
+    LDA CurrentBackgroundPalette+30
+    STA PPUData
+    LDA CurrentBackgroundPalette+31
+    STA PPUData
+
+    lda #$00
+    STA DrawFlags 
+JMP NMIDrawCommandReturnPoint
 
 TriggerVerticalNMIDraw:
 LDA DrawFlags
@@ -597,7 +715,7 @@ NMIWriteVertTiles1:
     LDA CurrentColumnHigh
     CMP #$23
     BNE :+
-    LDA #$00
+    LDA #$0b
     STA DrawFlags
     LDA #$01
     STA NMIEnableLevelEffects
@@ -714,7 +832,54 @@ jmp NMIDrawCommandReturnPoint
 NMIDrawVictoryPlayer:
 JMP NMIDrawCommandReturnPoint
 
+NMIUpdateAttributes:
+    BIT PPUStatus
+    LDA #$23
+    STA PPUAddress
+    LDA #$C0
+    STA PPUAddress
+
+    LDX #64
+    LDY #$00
+
+    :
+    LDA (attributespointer), Y 
+    STA PPUData
+    INY
+    DEX
+    BPL :-
+
+    LDA #$04 
+    STA DrawFlags
+
+
+
+JMP NMIDrawCommandReturnPoint
+
+NMIDarkenPallette:
+    ; BIT PPUStatus
+    ; LDA #$3F 
+    ; STA PPUAddress
+    ; LDA #$00
+    ; STA PPUAddress
+    ; LDA #$0F
+    ; LDX #32
+    ; :
+    ; STA PPUData
+    ; DEX
+    ; BPL :-
+    ; BIT PPUStatus
+    ; LDA #$20
+    ; STA PPUAddress
+    ; LDA #00
+    ; STA PPUAddress
+    ; LDA #$03
+    STA DrawFlags
+JMP NMIDrawCommandReturnPoint
+
 NMIUpdateRampart: ;180
+; JMP NMILevelUpdateReturnPoint ;
+
     LDA #%10010000 ;2
     STA PPUControl ;4
     BIT PPUStatus ;4
@@ -1020,15 +1185,61 @@ JMP NMIDrawCommandReturnPoint
 
 
 IRQ:
-    PHA 
-    BIT PPUStatus
-    LDA #$00
-    STA PPUScroll
-    STA PPUScroll
+    ; STA IRQDISABLE
+    ; RTI
+    JMP (irqpointer)
+
+IrqDoNothing:
     STA IRQDISABLE
+RTI
+
+IRQRampart:
+    PHA 
+    LDA #%00111110
+    STA PPUMask
+    STA IRQDISABLE
+    PLA
+RTI
+
+IRQTower1:
+    PHA 
+    ; BIT PPUStatus
+    ; LDA #$00
+    ; STA PPUScroll
+    ; STA PPUScroll
+
+
+    LDA #%10011110
+    STA PPUMask
+
+    LDA #<IRQTower2
+    STA irqpointer
+    LDA #>IRQTower2
+    STA irqpointer+1
+    LDA #$40
+    STA IRQLATCH
+    STA IRQRELOAD
+    STA IRQDISABLE
+    STA IRQENABLE
     PLA 
 RTI
 
+IRQTower2:
+    PHA
+    ; BIT PPUStatus
+    ; LDA #$00
+    ; STA PPUScroll
+    ; STA PPUScroll
+
+    LDA #%00111110
+    STA PPUMask
+    STA IRQDISABLE
+    LDA #<IRQTower1
+    STA irqpointer
+    LDA #>IRQTower1
+    STA irqpointer+1
+    PLA
+RTI
 ;;;;;;;;;;;;;;;;;;;;
 ;; Functions to call in the main loop
 ;;;;;;;;;;;;;;;;;;;;
@@ -1064,11 +1275,26 @@ PrepareLevelData:
     STA metatilepointer+1
 
     INY 
+    LDA (jumppointer), Y
+    STA attributespointer
+    INY 
     LDA (jumppointer), Y 
-    AND #%11100001
-    ORA CurrentPPUMask
+    STA attributespointer+1
+
+    INY 
+    LDA (jumppointer), Y
+    STA irqpointer
+    INY 
+    LDA (jumppointer), Y 
+    STA irqpointer+1
+
+    INY 
+    LDA (jumppointer), Y 
     STA CurrentPPUMask
-    STA PPUMask
+
+    INY 
+    LDA (jumppointer), Y 
+    STA NMIIrqValue
 RTS
 
 LoadPalletteToRam:
@@ -1194,12 +1420,10 @@ INX
 CPX #entity_mem
 BNE :-
 
-LDX #$20
-LDY #$80
-LDA #EntityType::Player 
-JSR SpawnEntity
-LDX #$50
-LDY #$10
+; LDX #$80
+; LDY #$20
+; LDA #EntityType::Player 
+; JSR SpawnEntity
 
 
 LDX #$10
@@ -1288,9 +1512,9 @@ LDA #$0F
 STA GameTimerAddress+1
 
 JSR SwapLeftBankToGame
-JSR SwapRightBankToTower
+; JSR SwapRightBankToTower
 
-LDA #$03
+LDA #$02
 STA CurrentMap
 JSR PrepareLevelData
 JSR LoadCollisionData
@@ -1299,7 +1523,7 @@ LDA CurrentMap
 JSR InitMap
 JSR LoadPalletteToRam
 
-LDA #$03
+LDA #$0c
 STA DrawFlags
 
 
@@ -1328,11 +1552,6 @@ RTS
 
 
 
-InitMapList:
-    .word InitMapRampart
-    .word InitMapTower
-    .word InitMapGarden
-    .word InitMapRest
 
 InitMap:
     ; LDY #$00 
@@ -1357,6 +1576,8 @@ InitMap:
 RTS 
 
 InitMapRampart:
+
+    JSR SwapRightBankToRampart
     LDA #$23
     STA ConveyorBeltAddress1
     LDA #$44
@@ -1430,6 +1651,8 @@ InitMapRampart:
     INX
     CPX #$08
     BNE :-
+    LDA #$01
+    STA NMIEnableLevelEffects
 RTS
 
 InitMapGarden:
@@ -1453,24 +1676,30 @@ InitMapRest:
     STX BANKSELECT
     STA BANKDATA
 
-    LDA #$02
-    STA temp
-    LDA #$10
-    STA temp2
-    STA temp3
-    LDX #$80
-    LDY #$B0
-    JSR SpawnEmitter
+    ; LDA #$02
+    ; STA temp
+    ; LDA #$10
+    ; STA temp2
+    ; STA temp3
+    ; LDX #$80
+    ; LDY #$B0
+    ; JSR SpawnEmitter
 
 
 
 
 
-    LDA #$00
+    LDA #$01
     STA NMIEnableLevelEffects
 RTS
 
 InitMapTower:
+    JSR SwapRightBankToTower
+    LDA #TOWERBANK1
+    STA CurrentTowerRotation
+    JSR SetTowerRotatorBank
+
+
     LDA #$C0
     STA WindowOffset1
     LDA #$D0
@@ -1515,6 +1744,24 @@ DoMapSpecificLogic:
 RTS
 
 MapRampartLogic:
+    JSR UpdateConveyorBelts
+    JSR UpdateWaterfalls
+
+    LDA rng
+    AND #%00000001
+    BNE :+
+    LDX #MAXPARTICLES-1
+    LDA ParticlesType, X
+    BNE :+
+    JSR Prng
+    TAX
+    LDY #$00
+    LDA #$05
+    STA temp
+    JSR SpawnParticles
+    :
+
+
     RTS 
 
 MapTowerLogic:
@@ -1624,6 +1871,9 @@ MapGardenLogic:
 
 
 MapRestLogic:
+    INC UpperScrollX
+
+
     LDX #MAXPARTICLES-1
     LDA ParticlesType, X
     BNE :++
@@ -1663,23 +1913,12 @@ MapRestLogic:
 
 RTS
 
-MapSpecificLogicTree:
-    .word MapRampartLogic
-    .word MapTowerLogic
-    .word MapGardenLogic
-    .word MapRestLogic
 
 DoGameLogic:
-    ; LDA #%00011111
-    ; STA PPUMask
-    INC UpperScrollX
-    JSR ProcessSpawnStack
     JSR ReadButtons
     JSR DecrementTimers
     JSR ProcessEntities
     JSR ProcessParticles
-    ; JSR UpdateConveyorBelts
-    ; JSR UpdateWaterfalls
     ; JSR ProcessDestructionStack
     ; JSR ProcessPlayerSpawnStack
     JSR DoMapSpecificLogic
@@ -1707,8 +1946,13 @@ DoVictoryScreenLogic:
 RTS
 
 ProcessOptionsInput:
+    lda framecount
+    beq :+
+    rts
+    :
+
     JSR CheckDown
-    BEQ :++
+    Bne :++
     INC MenuSelectorIndex
     LDA MenuSelectorIndex
     CMP #OPTIONSNUMBER
@@ -1717,6 +1961,7 @@ ProcessOptionsInput:
     :
     STA MenuSelectorIndex
     :
+
     JSR CheckUp
     BEQ :+
     DEC MenuSelectorIndex
@@ -1734,9 +1979,16 @@ ProcessOptionsInput:
     STA jumppointer+1
     JSR JumpToPointerRoutine
 
-    JSR CheckStart
-    BEQ :+
-    JSR InitGameHat
+    ; JSR CheckStart
+    ; BEQ :+
+    ; `Hat
+    ; :
+    LDA rng
+    cmp #$ff
+    BNE :+
+    ; LDA #$03
+    ; STA CurrentMap
+    jsr InitGameHat
     :
 
 RTS
@@ -1774,7 +2026,7 @@ RTS
 OptionsChangeMap:
     JSR CheckLeft
     CMP #ButtonReturn::Release
-    BNE :+
+    BEQ :+
     DEC CurrentMap
     :
     JSR CheckRight
@@ -1799,7 +2051,6 @@ OptionsChangeMap:
 RTS
 
 OptionsChangePalette:
-    INC CurrentPalette
     JSR CheckLeft
     CMP #ButtonReturn::Release
     BNE :+
@@ -2109,147 +2360,6 @@ CheckForGameEndHat:
 
 RTS
 
-
-ProcessSpawnStack:
-    ; LDY SpawnerIndex
-    ; BEQ EndProcessSpawnStack
-    ; LDA SpawnerIndex, Y
-    ; PHA  
-    ; DEC SpawnerIndex
-    ; LDA SpawnerIndex, Y
-    ; PHA  
-    ; DEC SpawnerIndex
-    ; LDA SpawnerIndex, Y
-    ; PHA  
-    ; DEC SpawnerIndex
-    ; PLA 
-    ; TAY
-    ; PLA 
-    ; TAX 
-    ; PLA
-    ; JSR SpawnEntity
-
-EndProcessSpawnStack:
-    RTS 
-
-AddEntityToSpawnStack:
-    LDY SpawnerIndex
-    CPY MAXENTITIES
-    BNE :+
-    STA SpawnerStack, Y 
-    INC SpawnerIndex
-    TYA 
-    STA SpawnerStack, Y
-    INC SpawnerIndex
-    TXA 
-    STA SpawnerStack, Y
-    INC SpawnerIndex 
-    :
-    RTS 
-
-
-ProcessDestructionStack:
-    LDY DestructionIndex ; index for the stack
-    BEQ EndProcessDestructionStack; if 0, stack is empty
-    
-    DestructionStackLoop:
-    LDX DestructionIndex, Y ; load the entity number 
-    LDA entities+Entity::type, X ; store the type for jump later
-    PHA
-    STA temp
-    LDA entities+Entity::ypos, X 
-    PHA 
-    LDA entities+Entity::xpos, X 
-    PHA 
-    LDA #$00 
-    STA entities+Entity::type, X ;clear that entity type
-    STA entities+Entity::xpos, X 
-    STA entities+Entity::ypos, X
-    STA entities+Entity::attributes, X
-    STA entities+Entity::generalpurpose, X
-    STA entities+Entity::animationframe, X
-    LDA #$05
-    STA entities+Entity::animationtimer, X
-    DEC DestructionIndex ; dec the stack
-    ; JMP ProcessDestructionStack
-    LDA temp 
-    ASL 
-    TAX
-    LDA DestroyEntityList, X 
-    STA jumppointer
-    LDA DestroyEntityList+1, X 
-    STA jumppointer+1
-    JMP (jumppointer) 
-; jump away to creating a death effect for whatever we destroyed
-
-    EndProcessDestructionStack:
-        RTS 
-
-AddEntityToDestructionStack:
-    LDY DestructionIndex
-    STA DestructionStack, Y 
-    INC DestructionIndex
-    RTS 
-
-AddEntityToPlayerSpawnStack:
-    LDY PlayerSpawnIndex
-    STA PlayerSpawnStack, Y 
-    INC PlayerSpawnIndex
-    RTS 
-
-ProcessPlayerSpawnStack:
-    LDA framecount
-    BEQ :+
-    RTS
-    :
-    LDY PlayerSpawnIndex
-    BEQ EndProcessPlayerSpawnStack
-    PlayerSpawnStackLoop:
-    LDA PlayerSpawnIndex, Y  
-    ASL 
-    TAY
-    LDA PlayerSpawnTable, Y
-    STA jumppointer
-    LDA PlayerSpawnTable+1, Y
-    STA jumppointer+1
-    DEC PlayerSpawnIndex
-    JMP (jumppointer)
-
-EndProcessPlayerSpawnStack:
-    RTS
-
-NoSpawn:
-    RTS
-; we never go here
-
-SpawnPlayerPort1:
-    LDX #$20
-    LDY #$20
-    LDA #EntityType::Teleporter
-    JSR SpawnEntity
-    RTS
-
-SpawnPlayerPort2:
-    LDX #$D0
-    LDY #$20
-    LDA #EntityType::TeleporterP2
-    JSR SpawnEntity
-    RTS
-
-SpawnPlayerPort3:
-    LDX #$30
-    LDY #$A0
-    LDA #EntityType::TeleporterP3
-    JSR SpawnEntity
-    RTS
-
-SpawnPlayerPort4:
-    LDX #$D0
-    LDY #$B0
-    LDA #EntityType::TeleporterP4
-    JSR SpawnEntity
-    RTS
-
 ; memory selection in x
 ; new bank in y
 SwapBank:
@@ -2497,7 +2607,7 @@ SpawnParticles:
         lda #$00
         STA ParticlesVXLow, X 
         sta ParticlesVYLow, X
-        LDA #%00000010
+        LDA #%00000011
         STA ParticlesAttributes, X
         LDA #$00
         sta ParticlesTimer1, X
@@ -2631,15 +2741,6 @@ ProcessEntities:
     LDX #$00
     ProcessEntitiesLoop:
 
-        ; LDA entities+Entity::type, X
-        ; ASL ; transfer current entity type to y
-        ; TAY  
-        ; LDA ProcessEntityList, Y ; use y as a jump pointer to jump to the process function for that entity!
-        ; STA jumppointer
-        ; LDA ProcessEntityList+1, Y 
-        ; STA jumppointer+1 
-        ; JMP (jumppointer)
-
         LDA entities+Entity::type, X
         BNE :+
         JMP EntityComplete
@@ -2682,7 +2783,7 @@ ProcessEntities:
     :
 RTS
 
-; .align 256
+
 StateMachineList:
     .word PlayerStateMachine ; dummy
     .word PlayerStateMachine
@@ -3821,6 +3922,9 @@ ProjectileSpellInit:
     LDA #$02 
     STA entities+Entity::generalpurpose, X 
     JMP EntityComplete
+
+AddEntityToDestructionStack:
+    RTS
 
 ProjectileSpellMovingLeft:
     JSR CollideLeft2
@@ -4986,6 +5090,28 @@ ParticlesProcessHoveringBoth:
     INC ParticlesY, X
 JMP NextParticle
 
+ParticlesProcessRain:
+    LDA ParticlesSubY, X 
+    CLC 
+    ADC #$80
+    STA ParticlesSubY
+    LDA ParticlesY, X 
+    ADC #$06
+    STA ParticlesY, X 
+    CMP #$F0 
+    BCC :+
+    LDA rng
+    STA ParticlesX, X 
+    AND #%00000111
+    STA ParticlesY, X
+    :
+    INC ParticlesX, X
+    INC ParticlesX, X
+    INC ParticlesX, X
+
+
+JMP NextParticle
+
 ParticlesApplyMovement:
     ; APPLY FRICTION
     ; LDA ParticlesVX, X
@@ -5151,14 +5277,8 @@ RTS
 ;  - load screen data address into 'world'
 ;  - load collision data addess into currentcollisionaddress 
 LoadSingleScreen:
-    SEI ; disable all interuppts 
-    LDA #%00010000
-    STA PPUControl
-
-    LDA #$00000000 ; disable all rendering
-    STA PPUControl
-
-
+    lda #$00
+    RTS
     LDA #$00
     STA currentrowodd
     STA currentroweven
@@ -5166,15 +5286,20 @@ LoadSingleScreen:
     LDA #$00 
     LDY #$00
     LDX #$00
+STX PPUData
+INX 
+CPX #$00
+BNE :-
+RTS
+
 
     LoadScreenLoop:
-        LDX #$10
         LoadOddRow:
             LDY currentrowodd
             LDA (world), Y ; get a meta tile
             ASL
             TAY ; move metatile ref to Y
-            LDA  MetaTileList, Y
+            LDA MetaTileList, Y
             STA jumppointer
             LDA MetaTileList+1, Y ; get the whole address of the data for that tile
             STA jumppointer+1
@@ -5186,9 +5311,9 @@ LoadSingleScreen:
             LDA (jumppointer), Y 
             STA PPUData
             INC currentrowodd
-            DEX 
+            INX 
+            CPX #$10
             BNE LoadOddRow ; break this loop when we've done one row
-
         LDY #$00
 
         LoadEvenRow:
@@ -5202,8 +5327,8 @@ LoadSingleScreen:
                 STA jumppointer
                 LDA MetaTileList+1, Y
                 STA jumppointer+1 
-                LDY #$02
-
+                
+                LDY #$00
                 LDA (jumppointer), Y 
                 STA PPUData
                 INY 
@@ -5211,56 +5336,47 @@ LoadSingleScreen:
                 STA PPUData
                 INC currentroweven
 
-                INY ; 5th byte is collision data 
-                LDA (jumppointer), Y
-                PHA 
-                TXA 
-                TAY
-                PLA 
-                STA (currentcollisionaddress), Y
+                ; INY ; 5th byte is collision data 
+                ; LDA (jumppointer), Y
+                ; PHA 
+                ; TXA 
+                ; TAY
+                ; PLA 
+                ; STA (currentcollisionaddress), Y
 
                 INX 
                 CPX #$10
                 BNE LoadEvenRowLoop
 
-        LDA currentcollisionaddress
+        ; LDA currentcollisionaddress
+        ; CLC 
+        ; ADC #$10
+        ; STA currentcollisionaddress
+        ; LDA currentcollisionaddress+1
+        ; ADC #$00 
+        ; STA currentcollisionaddress+1
+        LDA currentrowodd
         CLC 
         ADC #$10
-        STA currentcollisionaddress
-        LDA currentcollisionaddress+1
-        ADC #$00 
-        STA currentcollisionaddress+1
-
+        STA currentrowodd
         LDA currentroweven
         CLC 
-        ADC $10
-        STA currentrowodd
+        ADC #$10
         STA currentroweven
-        CMP #$F0 
+        CMP #$40
         BNE LoadScreenLoop
 
-    FillCollisionMap:
-        LDY #$00 
-        FillCollisionMapLoop:
-        LDA (world), Y 
-        STA CollisionMap, Y 
-        INY 
-        TYA 
-        CMP #$F0 
-        BEQ :+
-        JMP FillCollisionMapLoop
-        :
-    
-
 EndScreenLoad:
-LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
-STA PPUControl
-; Enabling sprites and background for left-most 8 pixels
-; Enable sprites and background
-LDA #%00111110
-STA PPUMask
-CLI
+; LDA #%10010000 ; enable NMI, change background to use second chr set of tiles ($1000)
+; STA PPUControl
+; ; Enabling sprites and background for left-most 8 pixels
+; ; Enable sprites and background
+; LDA #%00111110
+; STA PPUMask
+; CLI
 RTS
+
+
 
 ;Screen data in world/world+1
 LoadCollisionData:
@@ -7248,2676 +7364,8 @@ OAMBuffer:
     EndSpriteDraw:
         RTS 
 
-DrawSpriteList:
-    .word MetaSpriteListPlayer ; just a dummy to fill the entry. This will never be chosen
-    .word MetaSpriteListPlayer
-    .word MetaSpriteListPlayer2
-    .word MetaSpriteListPlayer3
-    .word MetaSpriteListPlayer4
-    .word MetaSpriteListSlider
-    .word MetaSpriteListProjectileSpell
-    .word MetaSpriteListExplosion
-    .word MetaSpriteListLightningEmitter
-    .word MetaSpriteListSparks
-    .word MetaSpriteListLightning
-    .word MetaSpriteListFireball
-    .word MetaSpriteListRespawner
-    .word MetaSpriteListPortal
-    .word MetaSpriteListBroomStick
-    .word MetaSpriteListIceBeam
-    .word MetaSpriteListTeleporter
-    .word MetaSpriteListTeleporter
-    .word MetaSpriteListTeleporter
-    .word MetaSpriteListTeleporter
-    .word MetaSpriteListHat
-    .word MetaSpriteListScoreTextPlayerOne
-    .word MetaSpriteListScoreTextPlayerTwo
-    .word MetaSpriteListScoreTextPlayerThree
-    .word MetaSpriteListScoreTextPlayerFour
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListScoreNumber
-    .word MetaSpriteListVerticalLaser
-    .word MetaSpriteListCrystal
-    .word MetaspriteListOptionSelector
-;;;;;;;;
-;; DEATH FUNCTIONS
-;; These are all called from ProcessDestructionStack and MUST return there when they finish
-;;;;;;;'
 
-NoDeathAction:
-    PLA 
-    PLA 
-    PLA
-    JMP ProcessDestructionStack
-
-Player1Death:
-    PLA 
-    PLA 
-    PLA 
-    JMP ProcessDestructionStack
-
-Player2Death:
-    PLA 
-    PLA 
-    PLA 
-    JMP ProcessDestructionStack
-
-Player3Death:
-    PLA 
-    PLA 
-    PLA 
-    JMP ProcessDestructionStack
-
-Player4Death:
-    PLA 
-    PLA 
-    PLA 
-    JMP ProcessDestructionStack
-
-
-RespawnPlayer:
-    PLA 
-    PLA 
-    PLA
-    JSR SpawnPlayerPort1
-    JMP ProcessDestructionStack
-RespawnPlayer2:
-    PLA 
-    TAX
-    PLA
-    TAY 
-    PLA
-    LDA #EntityType::Explosion
-    JSR SpawnEntity
-
-    LDA #$00
-    STA entities+Entity::generalpurpose, X
-    LDA #$02
-    JSR AddEntityToPlayerSpawnStack
-    JMP ProcessDestructionStack
-RespawnPlayer3:
-    PLA 
-    PLA 
-    PLA
-    LDY #$50
-    LDX #$50 
-    LDA EntityType::Player
-    JSR SpawnEntity
-    JMP ProcessDestructionStack
-RespawnPlayer4:
-    PLA 
-    PLA 
-    PLA
-    LDY #$50
-    LDX #$50 
-    LDA EntityType::Player
-    JSR SpawnEntity
-    JMP ProcessDestructionStack
-DeathExplosion:
-    PLA 
-    TAX
-    PLA
-    TAY 
-    PLA
-    LDA #EntityType::Explosion
-    JSR SpawnEntity
-    JMP ProcessDestructionStack
-RespawnSelf:
-    PLA 
-    PLA 
-    PLA
-    LDY rng
-    LDX rng
-    LDA temp
-    JSR SpawnEntity
-    JMP ProcessDestructionStack
-ExplodeAndRespawn:
-; this spawns first, if entity limit is reached no death effect
-    LDY rng
-    LDX rng
-    LDA temp
-    JSR SpawnEntity
-    ; JMP ProcessDestructionStack
-    PLA 
-    TAX 
-    PLA 
-    TAY 
-    PLA
-    ; JMP ProcessDestructionStack
-    LDA #EntityType::Explosion
-    JSR SpawnEntity
-    JMP ProcessDestructionStack
-
-
-
-
-;;;;;;;;;;;;
-
-
-; .segment "DATA"
-
-; Meta tile definitions. The first 4 bytes refer to tiles in chr rom
-; The 5th byte is the collision for the block. 0=no collide 1 = collide
-brick:
-    .byte $00,$01,$10,$11 ; chr rom reference bytes
-    .byte $00,$00,$00,$00 ; collision bytes 
-brick_hole:
-    .byte $02,$03,$12,$13
-    .byte $00,$00,$00,$00
-brick_dark_left:
-    .byte $04,$05,$14,$15
-    .byte $00,$00,$00,$00
-brick_dark_right:
-    .byte $06,$07
-    .byte $16,$17
-    .byte $00,$00
-    .byte $00,$00
-brick_bright_left:
-    .byte $08,$09
-    .byte $18,$19    
-    .byte $00,$00
-    .byte $00,$00
-
-brick_bright_right:
-    .byte $0A,$0B
-    .byte $1A,$1B
-    .byte $00,$00
-    .byte $00,$00
-earth:
-    .byte $20,$21
-    .byte $30,$31
-    .byte $01,$01
-    .byte $01,$01
-earth_edge_l:
-    .byte $20,$25
-    .byte $30,$35
-    .byte $01,$01
-    .byte $01,$01
-earth_edge_r:
-    .byte $24,$21
-    .byte $33,$31
-    .byte $01,$01
-    .byte $01,$01
-
-earth_top:
-    .byte $22,$23
-    .byte $32,$33
-    .byte $01,$01
-    .byte $01,$01
-arch_tl:
-    .byte $0C,$0D
-    .byte $1C,$1D
-    .byte $00,$00
-    .byte $00,$00
-arch_tr:
-    .byte $0E,$0F
-    .byte $1E,$1F
-    .byte $00,$00
-    .byte $00,$00
-arch_bl:
-    .byte $2C,$2D
-    .byte $3C,$3D
-    .byte $00,$00
-    .byte $00,$00
-arch_br:    
-    .byte $2E,$2F
-    .byte $3E,$3F
-    .byte $00,$00
-    .byte $00,$00
-moon_tl:
-    .byte $40,$41
-    .byte $50,$51
-    .byte $00,$00
-    .byte $00,$00
-moon_tr:
-    .byte $42,$43
-    .byte $52,$53
-    .byte $00,$00
-    .byte $00,$00
-moon_bl:
-    .byte $60,$61
-    .byte $70,$71
-    .byte $00,$00
-    .byte $00,$00
-moon_br:
-    .byte $62,$63
-    .byte $72,$73
-    .byte $00,$00
-    .byte $00,$00
-crack_v:
-    .byte $44,$45
-    .byte $54,$55
-    .byte $00,$00
-    .byte $00,$00
-crack_h:
-    .byte $64,$65 
-    .byte $74,$75
-    .byte $00,$00
-    .byte $00,$00
-crack:
-    .byte $46,$47
-    .byte $56,$57
-    .byte $00,$00
-    .byte $00,$00
-brick_lip_l:
-    .byte $28,$29
-    .byte $00,$01
-    .byte $00,$00
-    .byte $00,$00
-brick_lip_r:
-    .byte $2A,$2B 
-    .byte $10,$11
-    .byte $00,$00
-    .byte $00,$00
-brick_bulge_l:
-    .byte $28,$29
-    .byte $38,$39
-    .byte $00,$00
-    .byte $00,$00
-brick_bulge_r:
-    .byte $2A,$2B
-    .BYTE $3A,$3B
-    .byte $00,$00
-    .byte $00,$00
-water_l:
-    .byte $4C,$4D
-    .BYTE $5C,$5D
-    .byte $01,$01
-    .byte $01,$01
- water_r:
-    .byte $4E,$4F
-    .BYTE $5E,$5F
-    .byte $01,$01
-    .byte $01,$01 
-window_l:
-    .byte $6C,$6D
-    .BYTE $7C,$7D
-    .byte $00,$00
-    .byte $00,$00    
-window_r:
-    .byte $6E,$6F
-    .BYTE $7E,$7F 
-    .byte $00,$00
-    .byte $00,$00
-bars_l:
-    .byte $8C,$8D
-    .BYTE $9C,$9D
-    .byte $00,$00
-    .byte $00,$00
-bars_r:
-    .byte $8E,$8F
-    .BYTE $9E,$9F
-    .byte $00,$00
-    .byte $00,$00
-floor:
-    .byte $8A,$8B
-    .byte $9A,$9B
-    .byte $01,$01
-    .byte $01,$01     
-floor_no_collide:
-    .byte $88,$89 
-    .byte $98,$99 
-    .byte $00,$00
-    .byte $00,$00
-floor_l:
-    .byte $68,$69
-    .byte $78,$79
-    .byte $01,$01
-    .byte $01,$01
-floor_r:
-    .byte $6A,$6B
-    .byte $7A,$7B
-    .byte $01,$01
-    .byte $01,$01
-floor_corner_l:
-    .byte $A8,$A9 
-    .byte $B8,$B9
-    .byte $01,$01
-    .byte $01,$01 
-floor_corner_r:
-    .byte $AA,$AB 
-    .byte $BA,$BB
-    .byte $01,$01
-    .byte $01,$01 
-floor_side_l:
-    .byte $C8,$C9 
-    .byte $D8,$D9 
-    .byte $01,$01
-    .byte $01,$01
-floor_side_r:
-    .byte $CA,$CB 
-    .byte $DA,$DB
-    .byte $01,$01
-    .byte $01,$01
-floor_corner_bot_l:
-    .byte $E8,$E9 
-    .byte $F8,$F9
-    .byte $01,$01
-    .byte $01,$01
-floor_corner_bot_r:
-    .byte $EA,$EB 
-    .byte $FA,$FB
-    .byte $01,$01
-    .byte $01,$01 
-floor_corner_bot_mid:
-    .byte $E9,$EA 
-    .byte $F9,$FA
-    .byte $01,$01
-    .byte $01,$01 
-floor_corner_bot:
-    .byte $E6,$E7 
-    .byte $F6,$F7
-    .byte $01,$01
-    .byte $01,$01  
-candles:
-    .BYTE $A6,$A7 
-    .byte $B6,$B7
-    .byte $00,$00
-    .byte $00,$00 
-brazier:
-    .BYTE $A4,$A5 
-    .byte $B4,$B5
-    .byte $00,$00
-    .byte $00,$00
-pal1:
-    .byte $FC,$FC
-    .byte $FC,$FC
-    .byte $00,$00
-    .byte $00,$00
-pal2:
-    .byte $FD,$FD
-    .byte $FD,$FD
-    .byte $00,$00
-    .byte $00,$00
-pal3:
-    .byte $FF,$FF
-    .byte $FE,$FE
-    .byte $00,$00
-    .byte $00,$00
-pal4:
-    .byte $FF,$FF
-    .byte $FF,$FF
-    .byte $00,$00
-    .byte $00,$00
-brick_divided:
-    .byte $26, $27 
-    .byte $36, $37
-    .byte $00,$00
-    .byte $00,$00
-floor_middle:
-    .byte $A9,$AA
-    .byte $B9,$BA
-    .byte $01,$01
-    .byte $01,$01
-floor_half:
-    .byte $96,$97
-    .byte $68,$69
-    .byte $00,$00
-    .byte $01,$01
-floor_half_reversed:
-    .byte $68,$69
-    .byte $A2,$A3
-    .byte $01,$01
-    .byte $00,$00
-laseremittertop:
-    .byte $ea,$ea
-    .byte $ec,$ec
-    .byte $01,$01
-    .byte $00,$00
-
-laseremitterbottom:
-    .byte $ec,$ec
-    .byte $fd,$fe
-    .byte $00,$00
-    .byte $01,$01
-
-conveyorBelt1:
-    .byte $E0,$E1
-    .BYTE $FE,$FD
-    .byte $03,$03
-    .byte $01,$01
-conveyorBelt2:
-    .byte $E2,$E3
-    .BYTE $FE,$FD
-    .byte $03,$03
-    .byte $01,$01
-conveyorBelt3:
-    .byte $E4,$E5
-    .BYTE $FE,$FD
-    .byte $03,$03
-    .byte $01,$01
-conveyorBelt4:
-    .byte $E6,$E7
-    .BYTE $FE,$FD
-    .byte $03,$03
-    .byte $01,$01
-conveyorBelt5:
-    .byte $E8,$E9
-    .BYTE $FE,$FD
-    .byte $03,$03
-    .byte $01,$01
-conveyorbeltrl1:
-    .byte $E0,$E1 
-    .BYTE $FE,$FD
-    .byte $02,$02
-    .byte $02,$02
-conveyorbeltrl2:
-    .byte $E2,$E3
-    .BYTE $FE,$FD
-    .byte $02,$02
-    .byte $02,$02
-
-conveyorbeltrl3:
-    .byte $E4,$E5
-    .BYTE $FE,$FD
-    .byte $02,$02
-    .byte $02,$02
-
-conveyorbeltrl4:
-    .byte $E6,$E7
-    .BYTE $FE,$FD
-    .byte $02,$02
-    .byte $02,$02
-
-conveyorbeltrl5:
-    .byte $E8,$E9
-    .BYTE $FE,$FD
-    .byte $02,$02
-    .byte $02,$02
-
-jumpablefloor:
-    .byte $b2,$b3
-    .BYTE $fc,$fc
-    .byte $04,$04
-    .byte $00,$00
-
-jumpablefloorreversed:
-    .byte $fc,$fc
-    .BYTE $B2,$B3
-    .byte $00,$00
-    .byte $04,$04
-
-waterfalltop:
-    .byte $EA,$EB
-    .BYTE $FA,$FB
-    .byte $00,$00
-    .byte $00,$00
-
-waterfall1:
-    .byte $AC,$AD
-    .BYTE $BC,$BD
-    .byte $00,$00
-    .byte $00,$00
-waterfall2:
-    .byte $CC,$CD
-    .BYTE $DC,$DD
-    .byte $00,$00
-    .byte $00,$00
-waterfall3:
-    .byte $AE,$AF
-    .BYTE $BE,$BF
-    .byte $00,$00
-    .byte $00,$00
-waterfall4:
-    .byte $CE,$CF
-    .BYTE $DE,$DF
-    .byte $00,$00
-    .byte $00,$00
-
-
-
-
-
-
-titleblank:
-    .byte $ff,$ff
-    .byte $ff,$ff
-titlepressstart1:
-    .byte $B0,$B1
-    .byte $ff,$ff
-titlepressstart2:
-    .byte $B2,$B3
-    .byte $ff,$ff
-titlepressstart3:
-    .byte $B4,$B5
-    .byte $ff,$ff
-titleplayercount1:
-    .byte $B6,$B7
-    .byte $ff,$ff
-titleplayercount2:
-    .byte $B8,$B9
-    .byte $ff,$ff
-titleplayercount3:
-    .byte $BA,$BB
-    .byte $ff,$ff
-titlegamemode1:
-    .byte $BC,$BD
-    .byte $ff,$ff
-titlegamemode2:
-    .byte $CC,$CD
-    .byte $ff,$ff
-titlemap:
-    .byte $BE,$BF
-    .byte $ff,$ff
-titlepalette1:
-    .byte $DC,$DD
-    .byte $ff,$ff
-titlepalette2:
-    .byte $DE,$DF
-    .byte $ff,$ff
-
-
-TowerPal1:
-    .byte $6F,$6F
-    .byte $6F,$6F 
-    .byte $00,$00
-    .byte $00,$00
-TowerPal2:
-    .byte $7D,$7D
-    .byte $7D,$7D 
-    .byte $00,$00
-    .byte $00,$00
-
-TowerPal3:
-    .byte $7E,$7E
-    .byte $7E,$7E 
-    .byte $00,$00
-    .byte $00,$00
-TowerPal4:
-    .byte $7F,$7F
-    .byte $7F,$7F 
-    .byte $00,$00
-    .byte $00,$00
-Rotator1:
-    .byte $C0,$C1
-    .byte $D0,$D1
-    .byte $00,$00
-    .byte $02,$02
-Rotator2:
-    .byte $C2,$C3
-    .byte $D2,$D3
-    .byte $00,$00
-    .byte $02,$02
-Rotator3:
-    .byte $C4,$C5
-    .byte $D4,$D5
-    .byte $00,$00
-    .byte $02,$02
-Rotator4:
-    .byte $C6,$C7
-    .byte $D6,$D7
-    .byte $00,$00
-    .byte $02,$02
-Rotator5:
-    .byte $C8,$C9
-    .byte $D8,$D9
-    .byte $00,$00
-    .byte $02,$02
-Rotator6:
-    .byte $CA,$CB
-    .byte $DA,$DB
-    .byte $00,$00
-    .byte $02,$02
-Rotator7:
-    .byte $CC,$CD
-    .byte $DC,$DD
-    .byte $00,$00
-    .byte $02,$02
-Rotator8:
-    .byte $CE,$CF
-    .byte $DE,$DF
-    .byte $00,$00
-    .byte $02,$02
-Rotator9:
-    .byte $E0,$E1
-    .byte $F0,$F1
-    .byte $01,$01
-    .byte $00,$00
-Rotator10:
-    .byte $E2,$E3
-    .byte $F2,$F3
-    .byte $01,$01
-    .byte $00,$00
-Rotator11:
-    .byte $E4,$E5
-    .byte $F4,$F5
-    .byte $01,$01
-    .byte $00,$00
-Rotator12:
-    .byte $E6,$E7
-    .byte $F6,$F7
-    .byte $01,$01
-    .byte $00,$00
-Rotator13:
-    .byte $E8,$E9
-    .byte $F8,$F9
-    .byte $01,$01
-    .byte $00,$00
-Rotator14:
-    .byte $EA,$EB
-    .byte $FA,$FB
-    .byte $01,$01
-    .byte $00,$00
-Rotator15:
-    .byte $EC,$ED
-    .byte $FC,$FD
-    .byte $01,$01
-    .byte $00,$00
-Rotator16:
-    .byte $EE,$EF
-    .byte $FE,$FF
-    .byte $01,$01
-    .byte $00,$00
-RotatorCuff1:
-    .byte $C8,$07
-    .byte $F8,$17
-    .byte $00,$00
-    .byte $00,$00
-RotatorCuff2:
-    .byte $07,$C7
-    .byte $17,$F7
-    .byte $00,$00
-    .byte $00,$00
-Corner1:
-    .byte $07,$08
-    .byte $09,$00
-    .byte $00,$00
-    .byte $00,$00
-Corner2:
-    .byte $0A,$0B
-    .byte $01,$0C
-    .byte $00,$00
-    .byte $00,$00
-Corner3:
-    .byte $0D,$10
-    .byte $0E,$0F
-    .byte $00,$00
-    .byte $00,$00
-Corner4:
-    .byte $11,$1A
-    .byte $1B,$1C
-    .byte $00,$00
-    .byte $00,$00
-WindowEdgeTop:
-    .byte $13,$14
-    .byte $02,$02
-    .byte $00,$00
-    .byte $00,$00
-WindowEdgeBottom:
-    .byte $12,$12
-    .byte $03,$04
-    .byte $00,$00
-    .byte $00,$00
-WindowEdgeLeft:
-    .byte $17,$20
-    .byte $18,$20
-    .byte $00,$00
-    .byte $00,$00
-WindowEdgeRight:
-    .byte $21,$19
-    .byte $21,$1A
-    .byte $00,$00
-    .byte $00,$00
-Panel: 
-    .byte $03,$04
-    .byte $13,$14
-    .byte $00,$00
-    .byte $00,$00
-PanelTiled: 
-    .byte $05,$05
-    .byte $05,$05
-    .byte $00,$00
-    .byte $00,$00
-PanelLettered1:
-    .byte $07,$08
-    .byte $17,$18
-    .byte $00,$00
-    .byte $00,$00
-PanelLettered2:
-    .byte $09,$0A
-    .byte $19,$1A
-    .byte $00,$00
-    .byte $00,$00
-PanelLettered3:
-    .byte $0B,$0C
-    .byte $1B,$1C
-    .byte $00,$00
-    .byte $00,$00
-PanelLettered4:
-    .byte $0D,$0E
-    .byte $1D,$1E
-    .byte $00,$00
-    .byte $00,$00
- Brick1:
-    .byte $26,$27
-    .byte $36,$37
-    .byte $00,$00
-    .byte $00,$00
- Brick2:
-    .byte $27,$28
-    .byte $37,$38
-    .byte $00,$00
-    .byte $00,$00
- Brick3:
-    .byte $28,$29
-    .byte $38,$39
-    .byte $00,$00
-    .byte $00,$00
- Brick4:
-    .byte $29,$2a
-    .byte $39,$3a
-    .byte $00,$00
-    .byte $00,$00
- Brick5:
-    .byte $2A,$2B
-    .byte $3A,$3B
-    .byte $00,$00
-    .byte $00,$00
- Brick6:
-    .byte $2B,$2C
-    .byte $3B,$3C
-    .byte $00,$00
-    .byte $00,$00
- Brick7:
-    .byte $2C,$2D
-    .byte $3C,$3D
-    .byte $00,$00
-    .byte $00,$00
- Brick8:
-    .byte $2D,$27
-    .byte $3D,$37
-    .byte $00,$00
-    .byte $00,$00
- Pillar1:
-    .byte $2E,$2F
-    .byte $3E,$3F
-    .byte $00,$00
-    .byte $00,$00
- Pillar2:
-    .byte $4E,$4F
-    .byte $5E,$5F
-    .byte $00,$00
-    .byte $00,$00
-PillarHalf1:
-    .byte $3E,$3F
-    .byte $6F,$6F
-    .byte $00,$00
-    .byte $00,$00
-PillarHalf2:
-    .byte $6F,$6F
-    .byte $3E,$3F
-    .byte $00,$00
-    .byte $00,$00
- PlatformHalf:
-    .byte $22,$23
-    .byte $29,$38
-    .byte $01,$01
-    .byte $00,$00
- PlatformHalfReversed:
-    .byte $28,$39
-    .byte $22,$23
-    .byte $00,$00
-    .byte $01,$01
- PlatformFull:
-    .byte $30,$31
-    .byte $40,$41
-    .byte $01,$01
-    .byte $01,$01
- Letters1:
-    .byte $07,$08
-    .byte $17,$18
-    .byte $00,$00
-    .byte $00,$00
- Letters2:
-    .byte $08,$09
-    .byte $18,$18
-    .byte $00,$00
-    .byte $00,$00
- Letters3:
-    .byte $09,$0A
-    .byte $19,$1A
-    .byte $00,$00
-    .byte $00,$00
- Letters4:
-    .byte $0A,$0B
-    .byte $1A,$1B
-    .byte $00,$00
-    .byte $00,$00
- Letters5:
-    .byte $0B,$0C
-    .byte $1B,$1C
-    .byte $00,$00
-    .byte $00,$00
- Letters6:
-    .byte $0C,$0D
-    .byte $1C,$1D
-    .byte $00,$00
-    .byte $00,$00
- Letters7:
-    .byte $0D,$0E
-    .byte $1E,$1E
-    .byte $00,$00
-    .byte $00,$00
- Letters8:
-    .byte $0E,$0F
-    .byte $1E,$1F
-    .byte $00,$00
-    .byte $00,$00
-LettersVined1:
-    .byte $44,$45
-    .byte $54,$55
-    .byte $00,$00
-    .byte $00,$00
-LettersVined2:
-    .byte $45,$46
-    .byte $55,$56
-    .byte $00,$00
-    .byte $00,$00
-LettersVined3:
-    .byte $46,$47
-    .byte $56,$57
-    .byte $00,$00
-    .byte $00,$00
-LettersVined4:
-    .byte $47,$48
-    .byte $57,$58
-    .byte $00,$00
-    .byte $00,$00
-LettersVined5:
-    .byte $48,$49
-    .byte $58,$59
-    .byte $00,$00
-    .byte $00,$00
-Diamond:
-    .byte $32,$33
-    .byte $42,$43
-    .byte $00,$00
-    .byte $00,$00
-DiamondVined:
-    .byte $50,$51
-    .byte $60,$61
-    .byte $00,$00
-    .byte $00,$00
-DiamondSmall:
-    .byte $52,$52
-    .byte $52,$52
-    .byte $00,$00
-    .byte $00,$00
-PillarVined:
-    .byte $4a,$4b
-    .byte $5a,$5b
-    .byte $00,$00
-    .byte $00,$00
-PillarVined2:
-    .byte $4c,$4d
-    .byte $5c,$5d
-    .byte $00,$00
-    .byte $00,$00
-WindowCornerTL2:
-    .byte $05,$06
-    .byte $05,$11
-    .byte $00,$00
-    .byte $00,$00
-WindowCornerTR2:
-    .byte $05,$05
-    .byte $10,$15
-    .byte $00,$00
-    .byte $00,$00
-WindowCornerBL2:
-    .byte $05,$01
-    .byte $05,$05
-    .byte $00,$00
-    .byte $00,$00
-WindowCornerBR2:
-    .byte $00,$06
-    .byte $17,$07
-    .byte $00,$00
-    .byte $00,$00
-PlatformWithPillar:
-    .byte $22,$23
-    .byte $2E,$2F
-    .byte $04,$04
-    .byte $00,$00
-PlatformWithPillar2:
-    .byte $2E,$2F
-    .byte $22,$23
-    .byte $00,$00
-    .byte $04,$04
-Diamond2:
-    .byte $00,$01
-    .byte $10,$11
-    .byte $00,$00
-    .byte $00,$00
-PanelVined:
-    .byte $69,$6A
-    .byte $79,$7A
-    .byte $00,$00
-    .byte $00,$00
-PanelVined2:
-    .byte $6B,$6C
-    .byte $7B,$7C
-    .byte $00,$00
-    .byte $00,$00
-PanelTiled2:
-    .byte $06,$05
-    .byte $16,$05
-    .byte $00,$00
-    .byte $00,$00
-PanelTiled3:
-    .byte $05,$05
-    .byte $06,$05
-    .byte $00,$00
-    .byte $00,$00
-PanelTiled4:
-    .byte $16,$05
-    .byte $06,$16
-    .byte $00,$00
-    .byte $00,$00
-
-
-
-SnowPal1:
-    .byte $BF,$BF
-    .byte $BF,$BF
-    .byte $00,$00
-    .byte $00,$00
-SnowPal2:
-    .byte $16,$05
-    .byte $06,$16
-    .byte $00,$00
-    .byte $00,$00
-SnowPal3:
-    .byte $16,$05
-    .byte $06,$16
-    .byte $00,$00
-    .byte $00,$00
-Mountain1:
-    .byte $00,$01
-    .byte $10,$11
-    .byte $00,$00
-    .byte $00,$00
-Mountain2:
-    .byte $02,$03
-    .byte $12,$13
-    .byte $00,$00
-    .byte $00,$00
-Mountain3:
-    .byte $04,$05
-    .byte $14,$15
-    .byte $00,$00
-    .byte $00,$00
-Mountain4:
-    .byte $06,$07
-    .byte $16,$17
-    .byte $00,$00
-    .byte $00,$00
-Mountain5:
-    .byte $20,$21
-    .byte $30,$31
-    .byte $00,$00
-    .byte $00,$00
-Mountain6:
-    .byte $22,$23
-    .byte $32,$33
-    .byte $00,$00
-    .byte $00,$00
-Mountain7:
-    .byte $24,$25
-    .byte $34,$35
-    .byte $00,$00
-    .byte $00,$00
-Mountain8:
-    .byte $26,$27
-    .byte $36,$37
-    .byte $00,$00
-    .byte $00,$00
-Mountain9:
-    .byte $40,$41
-    .byte $50,$51
-    .byte $00,$00
-    .byte $00,$00
-Mountain10:
-    .byte $42,$43
-    .byte $52,$53
-    .byte $00,$00
-    .byte $00,$00
-Mountain11:
-    .byte $42,$43
-    .byte $70,$71
-    .byte $00,$00
-    .byte $00,$00
-Mountain12:
-    .byte $40,$41
-    .byte $72,$73
-    .byte $00,$00
-    .byte $00,$00
-Mountain13:
-    .byte $60,$61
-    .byte $54,$55
-    .byte $00,$00
-    .byte $00,$00
-Mountain14:
-    .byte $62,$63
-    .byte $56,$57
-    .byte $00,$00
-    .byte $00,$00
-Mountain15:
-    .byte $74,$75
-    .byte $54,$55
-    .byte $00,$00
-    .byte $00,$00
-Mountain16:
-    .byte $76,$76
-    .byte $54,$55
-    .byte $00,$00
-    .byte $00,$00
-Mountain1a:
-    .byte $28,$29
-    .byte $38,$39
-    .byte $00,$00
-    .byte $00,$00
-Mountain1b:
-    .byte $2A,$2B
-    .byte $3A,$3B
-    .byte $00,$00
-    .byte $00,$00
-Mountain2a:
-    .byte $2C,$2D
-    .byte $3C,$3D
-    .byte $00,$00
-    .byte $00,$00
-Mountain4a:
-    .byte $2E,$2F
-    .byte $3E,$3F
-    .byte $00,$00
-    .byte $00,$00
-Clouds1:
-    .byte $08,$09
-    .byte $18,$19
-    .byte $00,$00
-    .byte $00,$00
-Clouds2:
-    .byte $0a,$0b
-    .byte $1A,$1B
-    .byte $00,$00
-    .byte $00,$00
-
-Clouds3:
-    .byte $0C,$0D
-    .byte $1C,$1D
-    .byte $00,$00
-    .byte $00,$00
-Clouds4:
-    .byte $0E,$0F
-    .byte $1E,$1F
-    .byte $00,$00
-    .byte $00,$00
-SnowFloor1:
-    .byte $48,$49
-    .byte $58,$59
-    .byte $01,$01
-    .byte $01,$01
-SnowFloor2:
-    .byte $4A,$4B
-    .byte $5A,$5B
-    .byte $01,$01
-    .byte $01,$01
-SnowFloor3:
-    .byte $4C,$4D
-    .byte $5C,$5D
-    .byte $01,$01
-    .byte $01,$01
-SnowFloor4:
-    .byte $80,$81
-    .byte $90,$91
-    .byte $01,$01
-    .byte $01,$01
-SnowFloor5:
-    .byte $82,$83
-    .byte $92,$93
-    .byte $01,$01
-    .byte $01,$01
-SnowFloor6:
-    .byte $84,$85
-    .byte $94,$95
-    .byte $01,$01
-    .byte $01,$01
-CaveBackground1:
-    .byte $68,$69
-    .byte $78,$79
-    .byte $00,$00
-    .byte $00,$00
-CaveBackground2:
-    .byte $6A,$6B
-    .byte $7A,$7B
-    .byte $00,$00
-    .byte $00,$00
-CaveBackground3:
-    .byte $6C,$6D
-    .byte $7C,$7D
-    .byte $00,$00
-    .byte $00,$00
-CaveBackground4:
-    .byte $68,$7B
-    .byte $79,$7A
-    .byte $00,$00
-    .byte $00,$00
-CaveBackground5:
-    .byte $7A,$6B
-    .byte $6A,$7A
-    .byte $00,$00
-    .byte $00,$00
-CaveBackground6:
-    .byte $78,$7D
-    .byte $6C,$6B
-    .byte $00,$00
-    .byte $00,$00
-CavePillar:
-    .byte $6E,$6F
-    .byte $7E,$7F
-    .byte $00,$00
-    .byte $00,$00
-CavePlatform:
-    .byte $4e,$4F
-    .byte $5E,$5F
-    .byte $03,$03
-    .byte $00,$00
-CrystalBottom1:
-    .byte $C0,$C1
-    .byte $D0,$D1
-    .byte $00,$00
-    .byte $00,$00
-CrystalBottom2:
-    .byte $C2,$C3
-    .byte $D2,$D3
-    .byte $00,$00
-    .byte $00,$00
-CrystalTop1:
-    .byte $C4,$C5
-    .byte $D4,$D5
-    .byte $00,$00
-    .byte $00,$00
-CrystalTop2:
-    .byte $C6,$C7
-    .byte $D6,$D7
-    .byte $00,$00
-    .byte $00,$00
-CrystalLeft1:
-    .byte $E4,$E5
-    .byte $F4,$F5
-    .byte $00,$00
-    .byte $00,$00
-CrystalLeft2:
-    .byte $E6,$E7
-    .byte $F6,$F7
-    .byte $00,$00
-    .byte $00,$00
-CrystalRight1:
-    .byte $E0,$E1
-    .byte $F0,$F1
-    .byte $00,$00
-    .byte $00,$00
-CrystalRight2:
-    .byte $E2,$E3
-    .byte $F2,$F3
-    .byte $00,$00
-    .byte $00,$00
-GraveLeft:
-    .byte $A0,$A1
-    .byte $B0,$B1 
-    .byte $01,$01
-    .byte $01,$01
-
-GraveRight:
-    .byte $A4,$A5
-    .byte $B4,$B5 
-    .byte $01,$01
-    .byte $01,$01
-GraveCentre:
-    .byte $A2,$A3
-    .byte $B2,$B3 
-    .byte $01,$01
-    .byte $01,$01
-Fan:
-    .byte $c8,$C9
-    .byte $D8,$D9 
-    .byte $00,$00
-    .byte $00,$00
-BigFan1:
-    .byte $CC,$CD
-    .byte $DC,$DD 
-    .byte $00,$00
-    .byte $00,$00
-BigFan2:
-    .byte $CE,$CF
-    .byte $DE,$DF 
-    .byte $00,$00
-    .byte $00,$00
-BigFan3:
-    .byte $EC,$ED
-    .byte $FC,$FD 
-    .byte $00,$00
-    .byte $00,$00
-BigFan4:
-    .byte $EE,$EF
-    .byte $FE,$FF 
-    .byte $00,$00
-    .byte $00,$00
-GirderHorizontalLeft:
-    .byte $A8,$A9
-    .byte $BF,$BF 
-    .byte $03,$03
-    .byte $00,$00
-GirderHorizontalMiddle:
-    .byte $A9,$A9
-    .byte $BF,$BF 
-    .byte $03,$03
-    .byte $00,$00
-GirderHorizontalRight:
-    .byte $A9,$AA
-    .byte $BF,$BF 
-    .byte $03,$03
-    .byte $00,$00
-Machinery:
-    .byte $EA,$EB
-    .byte $FA,$FB 
-    .byte $00,$00
-    .byte $00,$00
-WaterfallSnow:
-    .byte $E8,$E9
-    .byte $F8,$F9 
-    .byte $00,$00
-    .byte $00,$00
-WaterfallGirder:
-    .byte $A9,$A9
-    .byte $F8,$F9 
-    .byte $00,$00
-    .byte $00,$00
-Cave1:
-    .byte $AB,$85
-    .byte $BF,$BF 
-    .byte $01,$03
-    .byte $00,$00
-Cave2:
-    .byte $84,$AC
-    .byte $BF,$BF 
-    .byte $03,$01
-    .byte $00,$00
-WaterfallSnowSplit1:
-    .byte $6C,$E8
-    .byte $6C,$E8 
-    .byte $00,$00
-    .byte $00,$00
-WaterfallSnowSplit2:
-    .byte $E9,$6D
-    .byte $E9,$6D
-    .byte $00,$00
-    .byte $00,$00
-CaveLeft:
-    .byte $BF,$6D
-    .byte $BF,$6D 
-    .byte $00,$00
-    .byte $00,$00
-CaveRight:
-    .byte $6C,$BF
-    .byte $6C,$BF 
-    .byte $00,$00
-    .byte $00,$00
-PlatformSmallLeft:
-    .byte $BF,$BF 
-    .byte $84,$BF
-    .byte $00,$00
-    .byte $03,$00
-PlatformSmallRight:
-    .byte $Bf,$BF 
-    .byte $Bf,$85
-    .byte $00,$00
-    .byte $00,$03
-PlatformSmallCentered:
-    .byte $Bf,$BF 
-    .byte $84,$85
-    .byte $00,$00
-    .byte $03,$03
-SnowBlock2:
-    .byte $AB,$AC 
-    .byte $BB,$BC
-    .byte $01,$01
-    .byte $01,$01
-SnowBlock1:
-    .byte $AB,$AD 
-    .byte $BC,$BC
-    .byte $01,$01
-    .byte $01,$01
-CrystalCenteredTop1:
-    .byte $Bf,$C0
-    .byte $Bf,$D0 
-    .byte $00,$00
-    .byte $00,$00
-CrystalCenteredTop2:
-    .byte $C1,$BF
-    .byte $D1,$BF 
-    .byte $00,$00
-    .byte $00,$00
-CrystalCenteredBottom1:
-    .byte $Bf,$C4
-    .byte $Bf,$d4 
-    .byte $00,$00
-    .byte $00,$00
-CrystalCenteredBottom2:
-    .byte $C5,$BF
-    .byte $D5,$BF 
-    .byte $00,$00
-    .byte $00,$00
-Grill1:
-    .byte $86,$87
-    .byte $96,$97 
-    .byte $01,$01
-    .byte $01,$01
-Grill2:
-    .byte $8A,$8A
-    .byte $96,$97 
-    .byte $01,$01
-    .byte $01,$01
-GirderVerticalLeft:
-    .byte $9f,$e5
-    .byte $9F,$f5 
-    .byte $00,$00
-    .byte $00,$00
-GirderVerticalRight:
-    .byte $e2,$9F
-    .byte $f2,$9F 
-    .byte $00,$00
-    .byte $00,$00
-GirderVerticalCentred:
-    .byte $9F,$e7
-    .byte $9F,$f7 
-    .byte $00,$00
-    .byte $00,$00
-Gear:
-    .byte $CA,$CB
-    .byte $DA,$DB 
-    .byte $00,$00
-    .byte $00,$00
-
-;Palette Data
-PaletteDataList:
-    .word PaletteDataCandyLand
-    .word PaletteDataGray
-
-PaletteData:
-    .byte $0f,$11,$21,$30, $0f,$0A,$1B,$2C, $0f,$0F,$09,$0A, $0f,$13,$23,$33
-    .byte $0f,$06,$16,$30, $0F,$1A,$2A,$30, $0F,$13,$23,$30, $0F,$2d,$3D,$30
-
-PalletteDataBlack:
-    .byte $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0F
-    .byte $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0f, $0f,$0f,$0f,$0F
-
-PaletteDataGray:
-    .byte $0f,$00,$10,$37,  $0F,$01,$03,$0A,  $0F,$07,$16,$27, $0F,$05,$15,$30  ;background palette data  
-    .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
-
-PaletteDataCandyLand:
-    .byte $04,$15,$26,$37,  $04,$09,$1a,$2b,  $04,$06,$17,$14, $04,$05,$15,$30  ;background palette data  
-    .byte $04,$06,$16,$30,  $04,$1A,$2A,$30,  $04,$13,$23,$30, $04,$2d,$3D,$30  ;sprite palette data
-
-
-PaletteDataTower:
-    .byte $0f,$07,$17,$27,  $0F,$07,$17,$1A,  $0F,$03,$13,$14, $0F,$07,$18,$28  ;background palette data  
-    .byte $0f,$06,$16,$30,  $0F,$1A,$2A,$30,  $0F,$13,$23,$30, $0F,$2d,$3D,$30  ;sprite palette data
-
-; Map Headers
-MapNameList:
-    .word MapNameRampart
-    .word MapNameTower
-    .word MapNameGarden
-    .word MapNameRest
-
-MapNameTower:
-    .byte $D0,$D1,$D2,$D3,$D4,$D5,$D6,$D7,$D8,$d9,$DA,$DB
-MapNameRest:
-    .BYTE $E0,$E1,$E2,$E3,$E4,$E5,$FF,$FF,$FF
-MapNameRampart:
-    .BYTE $F0,$F1,$F2,$F3,$F4,$F5,$F6,$F7,$F8
-MapNameGarden:
-    .BYTE $C0,$C1,$C2,$C3,$C4,$C5,$C6,$FF,$FF
-
-PaletteNameList:
-    .word PaletteNameBlood
-    .word PaletteNameCandy
-    .word PaletteNameByzantine
-    .word PaletteNameGrayscale
-
-PaletteNameBlood:
-    .byte $f9,$FA,$FB,$FC,$FD,$FF
-PaletteNameCandy:
-    .byte $C7,$C8,$C9,$CA,$CB,$FF
-PaletteNameByzantine:
-    .byte $E6,$E7,$E8,$E9,$EA,$FF
-PaletteNameGrayscale:
-    .byte $EB,$EC,$ED,$EE,$EF,$EF
-
-
-ScreenDefault:
-    .byte $24,$00,$00,$00,$00,$00,$00,$15,$15,$00,$00,$00,$00,$00,$00,$23
-    .byte $24,$00,$13,$12,$14,$00,$11,$0C,$0D,$15,$00,$00,$00,$00,$00,$23
-    .byte $24,$21,$22,$21,$22,$21,$11,$0E,$0F,$21,$22,$21,$22,$21,$00,$23
-    .byte $24,$00,$04,$05,$04,$05,$00,$10,$01,$00,$04,$05,$00,$04,$05,$23
-    .byte $24,$34,$04,$05,$00,$00,$30,$30,$1D,$19,$1A,$21,$22,$19,$1A,$23
-    .byte $24,$2b,$04,$05,$00,$08,$09,$00,$05,$02,$00,$02,$10,$02,$00,$23
-    .byte $29,$2b,$04,$05,$00,$0A,$0B,$00,$00,$02,$00,$02,$00,$02,$40,$29
-    .byte $24,$2b,$21,$22,$21,$22,$21,$21,$10,$21,$1F,$20,$3F,$00,$00,$23
-    .byte $24,$33,$23,$24,$02,$00,$00,$04,$05,$00,$40,$02,$00,$3F,$00,$23
-    .byte $29,$12,$25,$26,$32,$00,$03,$04,$05,$02,$00,$00,$00,$1D,$30,$23
-    .byte $24,$10,$08,$09,$02,$00,$31,$04,$05,$41,$3f,$3F,$00,$10,$05,$23
-    .byte $24,$00,$32,$32,$02,$32,$03,$19,$1A,$42,$3f,$19,$1A,$00,$00,$23
-    .byte $00,$00,$00,$00,$00,$00,$41,$00,$00,$43,$3f,$00,$00,$00,$00,$00
-    .byte $07,$07,$39,$39,$39,$39,$2B,$3F,$3F,$2B,$3A,$3A,$3A,$3A,$07,$07
-    .byte $06,$06,$06,$06,$06,$06,$00,$00,$00,$00,$06,$06,$06,$06,$06,$06
-
-ScreenTitle:
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$01,$02,$03,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-
-ScreenOptions:
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$04,$05,$06,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$09,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$0A,$0B,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$07,$08,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-
-
-ScreenVictory:
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$01,$02,$03,$04,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-
-ScreenTower:
-    .byte $43,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24
-    .byte $44,$45,$1A,$1A,$46,$4b,$16,$1A,$1A,$17,$4B,$3A,$4C,$37,$4D,$3F
-    .byte $43,$1C,$42,$42,$1D,$4b,$1C,$00,$00,$1D,$4B,$38,$37,$3C,$3b,$3E
-    .byte $44,$47,$1B,$1B,$48,$4b,$1C,$00,$00,$1D,$4B,$2C,$31,$31,$31,$24
-    .byte $08,$09,$0A,$0B,$2C,$1f,$18,$1B,$1B,$19,$1F,$2E,$04,$05,$06,$07
-    .byte $10,$11,$12,$13,$2D,$4D,$49,$4B,$4B,$2C,$1F,$2C,$0C,$0D,$0E,$0F
-    .byte $14,$33,$35,$3A,$1F,$4E,$2C,$3D,$3B,$49,$50,$1F,$33,$3B,$3C,$15
-    .byte $08,$09,$0A,$0B,$2C,$1F,$49,$3E,$3C,$2C,$1F,$4A,$04,$05,$06,$07
-    .byte $10,$11,$12,$13,$2D,$50,$2C,$3F,$3D,$49,$1F,$2C,$0C,$0D,$0E,$0F
-    .byte $2C,$24,$27,$24,$2C,$1F,$49,$3E,$3E,$2C,$24,$45,$1A,$1A,$46,$44
-    .byte $2D,$1E,$1E,$1E,$1E,$1F,$2C,$3D,$3F,$49,$27,$1C,$24,$24,$1D,$43
-    .byte $2C,$31,$31,$31,$31,$4E,$49,$3C,$3E,$2C,$26,$47,$31,$31,$48,$43
-    .byte $2D,$40,$40,$40,$40,$40,$2C,$3B,$3D,$49,$1E,$1E,$31,$31,$1E,$44
-    .byte $2D,$32,$30,$32,$30,$32,$49,$30,$30,$2D,$32,$32,$32,$32,$32,$44
-    .byte $2C,$24,$24,$24,$24,$24,$2C,$24,$24,$2D,$24,$24,$24,$24,$24,$43
-
-ScreenSnow:
-    .byte $19,$1a,$17,$18,$19,$1a,$17,$18,$19,$1a,$17,$18,$19,$1a,$17,$18
-    .byte $03,$04,$05,$06,$13,$04,$05,$14,$03,$04,$05,$06,$15,$16,$05,$06
-    .byte $07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A,$07,$08,$09,$0A
-    .byte $0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E,$0B,$0C,$0D,$0E
-    .byte $0F,$10,$11,$12,$0F,$10,$11,$12,$0F,$10,$11,$12,$0F,$10,$11,$12
-    .byte $39,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3A,$3b
-    .byte $00,$29,$2a,$00,$00,$00,$00,$00,$00,$00,$51,$50,$00,$35,$36,$12
-    .byte $00,$3F,$40,$00,$00,$00,$00,$00,$00,$00,$51,$50,$00,$37,$38,$00
-    .byte $43,$41,$42,$44,$4C,$4D,$00,$29,$00,$00,$51,$50,$00,$39,$3B,$00
-    .byte $43,$41,$42,$44,$48,$49,$00,$3f,$40,$00,$39,$3B,$00,$34,$34,$00
-    .byte $43,$41,$42,$44,$4A,$4B,$43,$41,$42,$44,$50,$51,$00,$39,$3B,$00
-    .byte $43,$41,$42,$44,$00,$52,$43,$41,$42,$28,$47,$28,$00,$50,$51,$00
-    .byte $43,$31,$33,$32,$29,$3C,$2A,$41,$42,$27,$2C,$27,$00,$50,$51,$00
-    .byte $1B,$1C,$1D,$1E,$1F,$20,$39,$3E,$3E,$3B,$4E,$4F,$4E,$4E,$4F,$4f
-    .byte $00,$00,$00,$00,$00,$00,$00,$3E,$3E,$00,$00,$00,$00,$00,$00,$00
-
-AttributesDefault: ; each attribute byte sets the pallete for a block of pixels
-    .byte %00001111, %00001111, %00001111, %00001111, %00001111, %00001111, %00001111, %00001111
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000
-    .byte %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %10100000, %10100000
-    .byte %01100110, %10011010, %10101010, %10101010, %10101010, %10101010, %10101010, %10101010
-    .byte %10101010, %10101010, %01011010, %10101011, %10101010, %01011010, %10100110, %10101001
-    .byte %10101010, %10101010, %10101010, %00100010, %10000100, %01011010, %10100110, %10101010
-    .byte %00100100, %01010101, %01011111, %01010011, %01011000, %01011010, %01011010, %01011010
-    .byte %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101
-
-AttributesTower: ; each attribute byte sets the pallete for a block of pixels
-    .byte %00010001, %00000000, %00000000, %00000000, %00000000, %00000000, %01010101, %01010101
-    .byte %00010001, %00000000, %00000000, %10001000, %00100010, %00000000, %11110101, %11110101
-    .byte %00000000, %11110000, %00000000, %01110000, %00010000, %00000000, %11110000, %00000000
-    .byte %00000000, %11110000, %00000000, %01110100, %00011101, %00000000, %11110101, %00000001
-    .byte %00000000, %00000000, %00000000, %01110100, %00011101, %00000000, %00000000, %01000000
-    .byte %11000000, %11110000, %00110000, %01110100, %00011101, %00000000, %11111010, %01000100
-    .byte %11000000, %11110000, %11110000, %11110100, %00111101, %11110000, %11111111, %01000100
-    .byte %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %00000000, %01000100
-
-
-;;;;;;;;;;;;
-;;; LOOK UP TABLES
-;;;;;;;;;;;
-CloudLine:
-    .byte $08,$09,$0A,$0B,$0C,$0D,$0E,$0F
-CloudLine2:
-    .byte $18,$19,$1A,$1B,$1C,$1D,$1E,$1F
-
-Sin:
-    .byte $00,$00,$01,$00,$00,$01,$00,$00,$01,$00,$00,$00,$01,$00,$00,$00,$01
-    .byte $00,$00,$00,$00,$00,$01,$00,$00,$00,$00,$01,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$ff,$00,$00,$ff,$00,$00,$ff,$00,$00,$00,$ff,$00,$00,$00,$ff
-    .byte $00,$00,$00,$00,$00,$ff,$00,$00,$00,$00,$ff,$00,$00,$00,$00,$00,$00
-;68
-
-Sin256:
-    .byte $80,$83,$86,$89
-
-.align 256
-NMIDrawCommands:
-    .word NMINoCommand ; 0 
-    .word NMIClearVerticalColumn1
-    .word NMIClearVerticalColumn2
-    .word NMIWriteVertTiles1 ; 3
-    .word NMISwapPallette ; 4
-    .word NMIClearVictoryScreen ;5
-    .word NMIDrawVictoryScreen ; 6
-    .word NMIDrawVictoryPlayer ; 7
-    .word NMIDrawVictoryPlayer ; 8
-    .word NMIDrawOptionsScreen ;9
-    .word NMIUpdateAnimatedTilesOptions ;a
-
-NMIAnimateCommands:
-    .word NMIUpdateRampart
-    .word NMIUpdateTower 
-    .word NMIUpdateGarden
-    .word NMIUpdateRest
-
-EmitterStates:
-    .word DummyEntry
-    .word EmitterProcessSnow
-    .word EmitterProcessHovering
-
-WindStateMachine:
-    .word WindWaiting ;0
-    .word WindWaiting;1
-    .word WindIncreasing;2
-    .word WindBlowing;3
-    .word WindDecreasing;4
-
-ParticleStates:
-    .word DummyEntry
-    .word ParticlesProcessWind
-    .word ParticlesProcessHoveringVertical
-    .word ParticlesProcessHoveringHorizontal
-    .word ParticlesProcessHoveringBoth
-
-MetaTileList:
-    .word brick ;00
-    .word brick_hole ;01
-    .word brick_dark_left ;02
-    .word brick_dark_right ;03
-    .word brick_bright_left ;04
-    .word brick_bright_right ; 05
-    .word earth ;06
-    .word earth_top ;07
-    .word arch_tl ;08
-    .word arch_tr ;09
-    .word arch_bl ;0A
-    .word arch_br ;0B
-    .word moon_tl ;0C
-    .word moon_tr ;0D
-    .word moon_bl ;0E 
-    .word moon_br ;0F
-    .word crack_v ;10
-    .word crack_h ;11
-    .word crack ;12
-    .word brick_lip_l;13
-    .word brick_lip_r;14
-    .word brick_bulge_l;15
-    .word brick_bulge_r;16
-    .word water_l;17
-    .word water_r;18 
-    .word window_l;19
-    .word window_r;1A
-    .word bars_l;1B
-    .word bars_r;1C
-    .word floor ;1d
-    .word floor_no_collide ;1e
-    .word floor_l ;1f
-    .word floor_r ;20
-    .word floor_corner_l ;21
-    .word floor_corner_r ;22
-    .word floor_side_l ;23
-    .word floor_side_r ;24
-    .word floor_corner_bot_l ;25
-    .word floor_corner_bot_r ;26
-    .word floor_corner_bot_mid ;27
-    .word floor_corner_bot ;28
-    .word candles ;29
-    .word brazier ;2a
-    .word pal1 ;2b
-    .word pal2 ;2c
-    .word pal3 ;2d
-    .word pal4 ;2e
-    .word brick_divided ; 2f
-    .word floor_middle ; 30
-    .word floor_half ; 31
-    .word floor_half_reversed ;32
-    .word laseremitterbottom ;33
-    .word laseremittertop ;34
-    .word conveyorBelt1 ;35
-    .word conveyorBelt2 ;36
-    .word conveyorBelt3 ;37
-    .word conveyorBelt4 ;38
-    .word conveyorBelt5 ;39
-    .word conveyorbeltrl1 ;3A
-    .word conveyorbeltrl2 ;3B
-    .word conveyorbeltrl3 ;3C
-    .word conveyorbeltrl4 ;3D
-    .word conveyorbeltrl5 ;3E
-    .word jumpablefloor ;3f
-    .word jumpablefloorreversed ;40
-
-    .word waterfalltop ;41 
-    .word waterfall1 ;42
-    .word waterfall2 ; 43
-    .word waterfall3 ; 44
-    .word waterfall4 ; 45
-    .word earth_edge_l
-    .word earth_edge_r
-
-MetaTileListTitle:
-    .word titleblank
-    .word titlepressstart1
-    .word titlepressstart2
-    .word titlepressstart3
-
-    .word titleplayercount1
-    .word titleplayercount2
-    .word titleplayercount3
-
-    .word titlegamemode1
-    .word titlegamemode2
-
-    .word titlemap
-    .word titlepalette1
-    .word titlepalette2
-
-; .align 256
-
-MetaTileListTower:
-    .word TowerPal1 ;00
-    .word TowerPal2 ;01
-    .word TowerPal3 ;02
-    .word TowerPal4;03
-    .word Rotator1;04
-    .word Rotator2;05
-    .word Rotator3;06
-    .word Rotator4;07
-    .word Rotator5;08
-    .word Rotator6;09
-    .word Rotator7;0A
-    .word Rotator8;0B
-    .word Rotator9;0C
-    .word Rotator10;0D
-    .word Rotator11;0E
-    .word Rotator12;0F
-    .word Rotator13;10
-    .word Rotator14;11
-    .word Rotator15;12
-    .word Rotator16;13
-    .word RotatorCuff1;14
-    .word RotatorCuff2;15
-    .word Corner1 ;16
-    .word Corner2 ;17
-    .word Corner3 ;18
-    .word Corner4;19
-    .word WindowEdgeTop;1A
-    .word WindowEdgeBottom;1B
-    .word WindowEdgeLeft;1C
-    .word WindowEdgeRight;1D
-    .word Panel ;1E
-    .word PanelTiled;1F 
-    .word PanelLettered1;20
-    .word PanelLettered2;21
-    .word PanelLettered3;22
-    .word PanelLettered4;23
-    .word Brick1;24
-    .word Brick2;25
-    .word Brick3;26
-    .word Brick4;27
-    .word Brick5;28
-    .word Brick6;29
-    .word Brick7;2a
-    .word Brick8;2b
-    .word Pillar1;2c
-    .word Pillar2;2d
-    .word PillarHalf1;2e
-    .word PillarHalf2;2f
-    .word PlatformHalfReversed;30
-    .word PlatformHalf;31
-    .word PlatformFull;32;
-    .word Letters1;33
-    .word Letters2;34
-    .word Letters3;35
-    .word Letters4;36
-    .word Letters5;37
-    .word Letters6;38
-    .word Letters7;39
-    .word Letters8;3a
-    .word LettersVined1 ;3b
-    .word LettersVined2 ;3c
-    .word LettersVined3 ;3d
-    .word LettersVined4 ;3E
-    .word LettersVined5 ;3F
-    .word Diamond ;40
-    .word DiamondVined ;41
-    .word DiamondSmall;42
-    .word PillarVined ;43
-    .word PillarVined2;44
-    .word WindowCornerTL2 ;45
-    .word WindowCornerTR2;46
-    .word WindowCornerBL2;47
-    .word WindowCornerBR2;48
-    .word PlatformWithPillar;49
-    .word PlatformWithPillar2;4A
-    .word Diamond2;4B
-    .word PanelVined;4C
-    .word PanelVined2;4D
-    .word PanelTiled2;4e
-    .word PanelTiled3;4f
-    .word PanelTiled4;50
-
-
-MetatilelistSnow:
-    .word SnowPal1 ;00
-    .word SnowPal2 ;01
-    .word SnowPal3 ;02
-    .word Mountain1 ;03
-    .word Mountain2;4
-    .word Mountain3;5
-    .word Mountain4;6
-    .word Mountain5;7
-    .word Mountain6;8
-    .word Mountain7;9
-    .word Mountain8;a
-    .word Mountain9;b
-    .word Mountain10;c
-    .word Mountain11;d
-    .word Mountain12;e
-    .word Mountain13;f
-    .word Mountain14;10
-    .word Mountain15;11
-    .word Mountain16;12
-    .word Mountain1a;13
-    .word Mountain1b;14
-    .word Mountain2a;15
-    .word Mountain4a;16
-    .word Clouds1;17
-    .word Clouds2;18
-    .word Clouds3;19
-    .word Clouds4;1a
-    .word SnowFloor1;1B
-    .word SnowFloor2;1C
-    .word SnowFloor3;1D
-    .word SnowFloor4;1E
-    .word SnowFloor5;1F
-    .word SnowFloor6;20
-    .word CaveBackground1;21
-    .word CaveBackground2;22
-    .word CaveBackground3;23
-    .word CaveBackground4;24
-    .word CaveBackground5;25
-    .word CaveBackground6;26
-    .WORD CavePillar ;27
-    .word CavePlatform ;28
-    .word CrystalBottom1 ;29
-    .word CrystalBottom1 ;2A
-    .word CrystalTop1 ;2B
-    .word CrystalTop2 ;2C
-    .word CrystalLeft1 ;2D
-    .word CrystalLeft2 ;2E
-    .word CrystalRight1 ;2F
-    .word CrystalRight2 ;30
-    .word GraveLeft;31
-    .word GraveRight;32
-    .word GraveCentre;33
-    .word Fan ;34
-    .word BigFan1 ;35
-    .word BigFan2 ;36
-    .word BigFan3;37
-    .word BigFan4;38
-    .word GirderHorizontalLeft;39
-    .word GirderHorizontalMiddle;3A
-    .word GirderHorizontalRight;3B
-    .word Machinery;3C
-    .word WaterfallSnow;3D
-    .word WaterfallGirder;3E
-    .word Cave1 ;3F
-    .word Cave2;40
-    .word WaterfallSnowSplit1;41
-    .word WaterfallSnowSplit2
-    .word CaveLeft;43
-    .word CaveRight ;44
-    .word PlatformSmallLeft;45
-    .word PlatformSmallRight;46
-    .word PlatformSmallCentered;47
-    .word SnowBlock1;48
-    .word SnowBlock2;49
-    .word CrystalCenteredBottom1;4a
-    .word CrystalCenteredBottom2;4b
-    .word CrystalCenteredTop1;4c
-    .word CrystalCenteredTop2;4d
-    .word Grill1;4e
-    .word Grill2;4f
-    .Word GirderVerticalLeft ;50
-    .word GirderVerticalRight;51
-    .word Gear;52
-    .WORD GirderVerticalCentred
-
-PlayerAddSpeedList:
-    .word DummyEntry
-    .word AddSpeedP1
-    .word AddSpeedP2
-    .word AddSpeedP3
-    .word AddSpeedP4
-
-PlayerSubSpeedList:
-    .word DummyEntry
-    .word SubSpeedP1
-    .word SubSpeedP2
-    .word SubSpeedP3
-    .word SubSpeedP4
-
-
-MapHeaders:
-    .word MapHeaderRampart
-    .word MapheaderTower
-    .word MapHeaderTitle
-    .word MapHeaderSnow
-    .word MapHeaderVictory
-    .word MapHeaderOptions
-
-MapHeaderRampart:
-    .word ScreenDefault ; map screen
-    .word PaletteDataCandyLand ; default palette
-    .word MetaTileList 
-
-MapHeaderTitle:
-    .word ScreenTitle ; map screen
-    .word PaletteData ; pal
-    .word MetaTileListTitle
-    
-MapHeaderVictory:
-    .word ScreenVictory
-    .word PaletteData
-    .word MetaTileListTitle
-
-MapHeaderOptions:
-    .word ScreenOptions ; map screen
-    .word PaletteData ; pal
-    .word MetaTileListTitle
-    .byte %00011110
-    .byte $00 
-
-MapheaderTower:
-    .word ScreenTower
-    .word PaletteDataCandyLand
-    .word MetaTileListTower
-
-MapHeaderSnow:
-    .word ScreenSnow
-    .word PaletteData
-    .word MetatilelistSnow
-    .byte %10000000 ; colour emphasis
-    .byte $00 ; padding
-
-GameStatePath:
-    .word DoTitleLogic
-    .word DoOptionsLogic
-    .word DoGameLogic
-    .word DoVictoryScreenLogic
-    .word WaitForGameLoad
-
-PlayerSpawnTable:
-    .word NoSpawn
-    .word SpawnPlayerPort1
-    .word SpawnPlayerPort2
-    .word SpawnPlayerPort3
-    .word SpawnPlayerPort4
-
-DestroyEntityList: ; defines behaviours for when an entity is destroyed
-
-
-
-MetaSpriteListPlayer:
-    .word PlayerSpriteIdle1 ; 0
-    .word PlayerSpriteIdle2 ; 1
-    .word PlayerSpriteRun1 ; 2
-    .word PlayerSpriteRun2 ; 3
-    .word PlayerSpriteCrouch ; 4
-    .word PlayerSpriteJump ; 5
-    .word PlayerSpriteSlide ; 6
-    .word PlayerSpriteFire ; 
-
-MetaSpriteListPlayerWithHat:
-    .word PlayerSpriteIdleHat1 ; 0
-    .word PlayerSpriteIdleHat2 ; 1
-    .word PlayerSpriteRunHat1 ; 2
-    .word PlayerSpriteRunHat2 ; 3
-    .word PlayerSpriteCrouchHat ; 4
-    .word PlayerSpriteJumpHat ; 5
-    .word PlayerSpriteSlideHat ; 6
-    .word PlayerSpriteFireHat ; 
-
-
-AnimationStringsPlayer:
-    .word AnimationStringPlayerIdle
-    .word AnimationStringPlayerRunning
-    .word AnimationStringPlayerCrouching
-    .word AnimationStringPlayerJumping
-    .word AnimationStringPlayerFalling
-    .word AnimationStringPlayerFallingEnd
-    .word AnimationStringPlayerRunning
-    .word AnimationStringPlayerFiring
-
-MetaSpriteListPlayer2:
-    .word Player2Sprite1
-    .word Player2Sprite2
-    .word Player2Sprite3
-    .word Player2Sprite4
-    .word Player2Sprite5
-    .word Player2Sprite6
-    .word Player2Sprite7
-
-MetaSpriteListPlayer3:
-    .word Player3Sprite1
-    .word Player3Sprite2
-    .word Player3Sprite3
-    .word Player3Sprite4
-    .word Player3Sprite5
-    .word Player3Sprite6
-    .word Player3Sprite7
-
-MetaSpriteListPlayer4:
-    .word Player4Sprite1
-    .word Player4Sprite2
-    .word Player4Sprite3
-    .word Player4Sprite4
-    .word Player4Sprite5
-    .word Player4Sprite6
-    .word Player4Sprite7
- 
-MetaSpriteListSlider:
-    .word MetaSpriteSlider1
-    .word MetaSpriteSlider2
-
-; .align 256 
-MetaSpriteListProjectileSpell:
-    .word ProjectileSpellSprite1
-    .word ProjectileSpellSprite2
-    .word ProjectileSpellSprite3
-    .word ProjectileSpellSprite4
-    .word ProjectileSpellSprite5
-    .word ProjectileSpellSprite6
-    .word ProjectileSpellSprite7
-    .word ProjectileSpellSprite8
-    .word ProjectileSpellSprite9
-    .word ProjectileSpellSprite10
-
-
-MetaSpriteListExplosion:
-    .word ExplosionSprite1
-    .word ExplosionSprite2
-    .word ExplosionSprite3
-    .word ExplosionSprite4
-
-
-MetaSpriteListLightningEmitter:
-    .word LightningEmitterSprite1 
-
-MetaSpriteListSparks: 
-    .word SparksSprite1 
-    .word SparksSprite2
-
-MetaSpriteListLightning:
-    .word LightningSprite1
-    .word LightningSprite2
-    .word LightningSprite3
-    .word LightningSprite4
-    .word LightningSprite5
-    .word LightningSprite6
-
-MetaSpriteListFireball:
-    .word FireballSprite1
-    .word FireballSprite2
-    .word FireballSprite3
-    .word FireballSprite4
-
-MetaSpriteListRespawner:
-    .word RespawnerSprite1
-    .word RespawnerSprite2 
-
-MetaSpriteListPortal:
-    .word PortalSprite1 
-    .word PortalSprite2
-    .word PortalSprite3 
-    .word PortalSprite4
-
-MetaSpriteListBroomStick:
-    .word BroomStickSprite
-
-MetaSpriteListIceBeam:
-    .word IcebeamSprite1 ;0
-    .word IcebeamSprite2 ;1
-    .word IceCrystalSprite1   ;2
-    .word IceCrystalSprite2 ;3
-    .word IceCrystalSprite3 ;4
-
-MetaSpriteListTeleporter:
-    .word TeleporterSprite1
-    .word TeleporterSprite2
-    .word TeleporterSprite3
-    .word TeleporterSprite4
-    .word TeleporterSprite5
-    .word TeleporterSprite6
-    .word TeleporterSprite7
-    .word TeleporterSprite8
-    .word TeleporterSprite9
-
-MetaSpriteListHat:
-    .word HatSprite
-
-MetaSpriteListScoreTextPlayerOne:
-    .word ScoreTextPlayer1Sprite
-
-MetaSpriteListScoreTextPlayerTwo:
-    .word ScoreTextPlayer2Sprite
-
-MetaSpriteListScoreTextPlayerThree:
-    .word ScoreTextPlayer3Sprite
-
-MetaSpriteListScoreTextPlayerFour:
-    .word ScoreTextPlayer4Sprite
-
-
-MetaSpriteListScoreNumber:
-    .word ScoreNumber0Sprite
-    .word ScoreNumber1Sprite
-    .word ScoreNumber2Sprite
-    .word ScoreNumber3Sprite
-    .word ScoreNumber4Sprite
-    .word ScoreNumber5Sprite
-    .word ScoreNumber6Sprite
-    .word ScoreNumber7Sprite
-    .word ScoreNumber8Sprite
-    .word ScoreNumber9Sprite
-
-MetaSpriteListVerticalLaser:
-    .word VerticalLaserSprite1
-    .word VerticalLaserSprite2
-    .word VerticalLaserSprite3
-
-MetaSpriteListCrystal:
-    .word CrystalSprite1
-    .word CrystalSprite2
-    .word CrystalSprite3
-
-MetaspriteListOptionSelector:
-    .word OptionSelectorSprite1
-
-PlayerSpriteIdle1:
-    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-PlayerSpriteIdle2:
-    .byte $00,$01,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteRun1:
-    .byte $00,$02,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteRun2:
-    .byte $00,$03,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteCrouch:
-    .byte $00,$04,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteJump:
-    .byte $00,$06,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteSlide:
-    .byte $00,$08,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $00,$09,$00,$07
-    .byte $FF ; termination byte
-PlayerSpriteFire:
-    .byte $00,$07,$00,$00
-    .byte $FF
-
-PlayerSpriteIdleHat1:
-    .byte $00,$00,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FA,$16,$00,$00
-    .byte $FF ; termination byte 
-PlayerSpriteIdleHat2:
-    .byte $00,$01,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FA,$16,$00,$00
-    .byte $FF ; termination byte
-PlayerSpriteRunHat1:
-    .byte $00,$02,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteRunHat2:
-    .byte $00,$03,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteCrouchHat:
-    .byte $00,$04,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteJumpHat:
-    .byte $00,$06,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-PlayerSpriteSlideHat:
-    .byte $00,$08,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $00,$09,$00,$07
-    .byte $FF ; termination byte
-PlayerSpriteFireHat:
-    .byte $00,$07,$00,$00
-    .byte $FF
-
-
-AnimationStringPlayerIdle:
-    .byte $00,$1A,$01,$1A,$FF ; Animation frame -> Timer FF=repeat
-AnimationStringPlayerRunning:
-    .byte $02,$08,$03,$08,$FF
-AnimationStringPlayerCrouching:
-    .byte $01 ; animation length
-    .byte $04
-    .byte $FF ; loop
-AnimationStringPlayerJumping:
-    .byte $01 ; animation frame
-    .byte $05 ; ani length
-    .byte $FF ; loop
-AnimationStringPlayerFalling:
-    .byte $00,$80,$FF
-AnimationStringPlayerFallingEnd:
-    .byte $04,$09,$FE
-AnimationStringPlayerFiring:
-    .byte $01 ; animation length
-    .byte $07
-    .byte $FF
-
-Player2Sprite1:
-    .byte $00,$00,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-Player2Sprite2:
-    .byte $00,$01,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player2Sprite3:
-    .byte $00,$02,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player2Sprite4:
-    .byte $00,$03,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player2Sprite5:
-    .byte $00,$04,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player2Sprite6:
-    .byte $00,$05,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player2Sprite7:
-    .byte $00,$06,$01,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-
-Player3Sprite1:
-    .byte $00,$00,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-Player3Sprite2:
-    .byte $00,$01,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player3Sprite3:
-    .byte $00,$02,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player3Sprite4:
-    .byte $00,$03,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player3Sprite5:
-    .byte $00,$04,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player3Sprite6:
-    .byte $00,$05,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player3Sprite7:
-    .byte $00,$06,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-
-Player4Sprite1:
-    .byte $00,$00,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-Player4Sprite2:
-    .byte $00,$01,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player4Sprite3:
-    .byte $00,$02,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player4Sprite4:
-    .byte $00,$03,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player4Sprite5:
-    .byte $00,$04,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player4Sprite6:
-    .byte $00,$05,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-Player4Sprite7:
-    .byte $00,$06,$03,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-
-NoDraw:
-    .byte $FF ; termination byte
-MetaSpriteSlider1:
-    .byte $00,$01,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-MetaSpriteSlider2:
-    .byte $00,$02,$02,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-
-ProjectileSpellSprite1:
-    .byte $00,$20,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte 
-ProjectileSpellSprite2:
-    .byte $00,$21,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite3:
-    .byte $00,$22,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite4:
-    .byte $00,$23,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite5:
-    .byte $00,$24,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite6:
-    .byte $00,$25,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite7:
-    .byte $00,$26,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite8:
-    .byte $00,$27,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite9:
-    .byte $00,$28,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ProjectileSpellSprite10:
-    .byte $00,$29,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-
-
-
-ExplosionSprite1: 
-    .byte $00,$41,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ExplosionSprite2: 
-    .byte $00,$42,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ExplosionSprite3: 
-    .byte $00,$43,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-ExplosionSprite4: 
-    .byte $00,$44,$00,$00 ;yoffset -> sprite no -> palette -> xoffset
-    .byte $FF ; termination byte
-
-LightningEmitterSprite1:
-    .byte $00,$C4,$00,$00
-    .byte $FF
-
-SparksSprite1:
-    .byte $00,$DA,$00,$00
-    .byte $FF
-SparksSprite2:
-    .byte $00,$DB,$00,$00
-    .byte $FF
-
-LightningSprite1:
-    .byte $00,$D4,$00,$00
-    .byte $FF
-LightningSprite2:
-    .byte $00,$D5,$00,$00
-    .byte $FF
-LightningSprite3:
-    .byte $00,$D6,$00,$00
-    .byte $FF
-LightningSprite4:
-    .byte $00,$D7,$00,$00
-    .byte $FF
-LightningSprite5:
-    .byte $00,$D8,$00,$00
-    .byte $FF
-LightningSprite6:
-    .byte $00,$D9,$00,$00
-    .byte $FF
-
-FireballSprite1:
-    .byte $00,$40,$00,$00
-    .byte $FF
-FireballSprite2:
-    .byte $00,$41,$00,$00
-    .byte $FF
-FireballSprite3:
-    .byte $00,$42,$00,$00
-    .byte $FF
-FireballSprite4:
-    .byte $00,$43,$00,$00
-    .byte $FF
-
-RespawnerSprite1:
-    .byte $00,$E0,$00,$00
-    .byte $00,$E1,$00,$08
-    .byte $08,$F0,$00,$00
-    .byte $08,$F1,$00,$08
-    .byte $FF
-
-RespawnerSprite2:
-    .byte $00,$E2,$00,$00
-    .byte $00,$E3,$00,$08
-    .byte $08,$F2,$00,$00
-    .byte $08,$F3,$00,$08
-    .byte $FF
-
-PortalSprite1:
-    .byte $04,$B2,$00,$04
-    .byte $FF 
-
-PortalSprite2:
-    .byte $00,$A0,$00,$00
-    .byte $00,$A1,$00,$08
-    .byte $08,$B0,$00,$00
-    .byte $08,$B1,$00,$08
-    .byte $FF
-
-PortalSprite3:
-    .byte $00,$C0,$00,$00
-    .byte $00,$C1,$00,$08
-    .byte $08,$D0,$00,$00
-    .byte $08,$D1,$00,$08
-    .byte $FF
-
-PortalSprite4:
-    .byte $00,$C2,$00,$00
-    .byte $00,$C3,$00,$08
-    .byte $08,$D2,$00,$00
-    .byte $08,$D3,$00,$08
-    .byte $FF
-
-BroomStickSprite:
-    .byte $00,$52,$00,$00
-    .byte $00,$53,$00,$08
-    .byte $00,$54,$00,$0F
-    .byte $FF
-
-
-IcebeamSprite1:
-    .byte $00,$90,$00,$00
-    .byte $FF
-IcebeamSprite2:
-    .byte $00,$91,$00,$00
-    .byte $FF
-IceCrystalSprite1:
-    .byte $00,$80,$00,$00
-    .byte $FF
-IceCrystalSprite2:
-    .byte $00,$81,$00,$00
-    .byte $FF
-IceCrystalSprite3:
-    .byte $00,$82,$00,$00
-    .byte $FF
-
-TeleporterSprite1:
-    .byte $00,$B4,$00,$00
-    .byte $FF
-TeleporterSprite2:
-    .byte $00,$B5,$00,$00
-    .byte $FF
-TeleporterSprite3:
-    .byte $00,$B6,$00,$00
-    .byte $FF
-TeleporterSprite4:
-    .byte $00,$B7,$00,$00
-    .byte $FF
-TeleporterSprite5:
-    .byte $00,$B8,$00,$00
-    .byte $FF
-TeleporterSprite6:
-    .byte $00,$B9,$00,$00
-    .byte $FF
-TeleporterSprite7:
-    .byte $00,$BA,$00,$00
-    .byte $FF
-TeleporterSprite8:
-    .byte $00,$BB,$00,$00
-    .byte $FF
-TeleporterSprite9:
-    .byte $00,$BC,$00,$00
-    .byte $FF
-
-HatSprite:
-    .byte $00,$16,$00,$00
-    .byte $FF
-
-ScoreTextPlayer1Sprite:
-    .byte $00,$0b,$00,$00
-    .BYTE $FF
-
-ScoreTextPlayer2Sprite:
-    .byte $00,$0c,$00,$00
-    .BYTE $FF
-
-ScoreTextPlayer3Sprite:
-    .byte $00,$0D,$00,$00
-    .BYTE $FF
-
-ScoreTextPlayer4Sprite:
-    .byte $00,$0E,$00,$00
-    .BYTE $FF
-
-ScoreNumber0Sprite:
-    .byte $00, $9F,$00,$00
-    .byte $FF
-ScoreNumber1Sprite:
-    .byte $00, $0F,$00,$00
-    .byte $FF
-
-ScoreNumber2Sprite:
-    .byte $00, $1F,$00,$00
-    .byte $FF
-ScoreNumber3Sprite:
-    .byte $00, $2F,$00,$00
-    .byte $FF
-ScoreNumber4Sprite:
-    .byte $00, $3F,$00,$00
-    .byte $FF
-ScoreNumber5Sprite:
-    .byte $00, $4F,$00,$00
-    .byte $FF
-ScoreNumber6Sprite:
-    .byte $00, $5F,$00,$00
-    .byte $FF
-ScoreNumber7Sprite:
-    .byte $00, $6F,$00,$00
-    .byte $FF
-ScoreNumber8Sprite:
-    .byte $00, $7F,$00,$00
-    .byte $FF
-ScoreNumber9Sprite:
-    .byte $00, $8F,$00,$00
-    .byte $FF
-
-VerticalLaserSprite1:
-    .byte $00,$92,$00,$00
-    .byte $00,$93,$00,$08
-    .byte $08,$A2,$00,$00
-    .byte $08,$A3,$00,$08
-
-    .byte $10,$92,$00,$00
-    .byte $10,$93,$00,$08
-    .byte $18,$A2,$00,$00
-    .byte $18,$A3,$00,$08
-
-    .byte $20,$92,$00,$00
-    .byte $20,$93,$00,$08
-    .byte $28,$A2,$00,$00
-    .byte $28,$A3,$00,$08
-
-    .byte $30,$92,$00,$00
-    .byte $30,$93,$00,$08
-    .byte $38,$A2,$00,$00
-    .byte $38,$A3,$00,$08
-
-    .byte $ff
-
-VerticalLaserSprite2:
-    .byte $00,$94,$00,$00
-    .byte $00,$95,$00,$08
-    .byte $08,$A4,$00,$00
-    .byte $08,$A5,$00,$08
-
-    .byte $10,$94,$00,$00
-    .byte $10,$95,$00,$08
-    .byte $18,$A4,$00,$00
-    .byte $18,$A5,$00,$08
-
-    .byte $20,$94,$00,$00
-    .byte $20,$95,$00,$08
-    .byte $28,$A4,$00,$00
-    .byte $28,$A5,$00,$08
-
-    .byte $30,$94,$00,$00
-    .byte $30,$95,$00,$08
-    .byte $38,$A4,$00,$00
-    .byte $38,$A5,$00,$08
-    .byte $ff
-
-VerticalLaserSprite3:
-    .byte $00,$96,$00,$00
-    .byte $00,$97,$00,$08
-    .byte $08,$a6,$00,$00
-    .byte $08,$a7,$00,$08
-
-    .byte $10,$96,$00,$00
-    .byte $10,$97,$00,$08
-    .byte $18,$a6,$00,$00
-    .byte $18,$a7,$00,$08
-
-    .byte $20,$96,$00,$00
-    .byte $20,$97,$00,$08
-    .byte $28,$a6,$00,$00
-    .byte $28,$a7,$00,$08
-
-    .byte $30,$96,$00,$00
-    .byte $30,$97,$00,$08
-    .byte $38,$a6,$00,$00
-    .byte $38,$a7,$00,$08
-    .byte $ff
-
-CrystalSprite1:
-    .byte $00,$CB,$00,$00
-    .byte $ff
-
-CrystalSprite2:
-    .byte $00,$CC,$00,$00
-    .byte $ff
-
-CrystalSprite3:
-    .byte $00,$00,$00,$00
-
-    .byte $ff
-
-OptionSelectorSprite1:
-    .byte $05,$12,$00,$00
-    .byte $00,$13,$00,$40
-    .byte $ff
-
-OptionSelectorSprite2:
-    .byte $05,$12,$00,$00
-    .byte $00,$13,$00,$40
-    .byte $ff
-
-OptionSelectorSprite3:
-    .byte $05,$12,$00,$00
-    .byte $00,$13,$00,$40
-    .byte $ff
-
-OptionSelectorSprite4:
-    .byte $05,$12,$00,$00
-    .byte $00,$13,$00,$40
-    .byte $ff
-
-OptionSelectorSprite5:
-    .byte $05,$12,$00,$00
-    .byte $00,$13,$00,$40
-    .byte $ff
-
-
-;; Animation Strings 
-AnimationPortalExpand:
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
-    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
-    .byte $FF 
-
-AnimationPortalWait:
-    .byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
-    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
-    .byte $03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03,$03
-    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
-    .byte $FF
-
-AnimationPortalContract:
-    .byte $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
-    .byte $02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02,$02
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $FF 
-
-
-JumpStrength:
-    .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$FE,$FF,$FF,$FF,$FF,$FF,$FF,$00,$00,$00,$01
-JumpStrengthReleased:
-    .byte $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
-HeadbonkStrength:
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$01,$01,$01,$01,$01,$01,$01
-
-
-SpawnerSpeedRamp:
-    .byte $01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$00,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$FF
+.include "data.asm"
 
 ; .include "famistudio_ca65.s"
 ; .include "testsong.s"
